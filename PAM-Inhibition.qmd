@@ -1,0 +1,144 @@
+---
+title: "2026 *Ulva australis* PAM-Temperature Inhibition Analysis"
+title-block-banner: true
+date: today
+date-format: "YYYY MMM MM"
+author: 
+  - name: Dai Sumiyoshi
+  - name: Kaiki Tajiri
+  - name: Masahiro Suzuki
+  - name: Gregory N. Nishihara
+  - name: Ryuta Terada
+execute: 
+  echo: false
+  message: false
+  warning: false
+---
+
+```{r}
+#| include: false
+library(tidyverse)
+library(ggpubr)
+library(ggtext)
+library(magick)
+library(patchwork)
+library(showtext)
+library(brms)
+library(tidybayes)
+library(gt)
+library(gnnlab)
+library(utils)
+library(readxl)
+```
+
+```{r}
+#| include: false
+font_add_google("Noto Sans", family = "ns")
+theme_pubr(10, "ns", border = TRUE) |> 
+  set_theme()
+theme_pubr() |> 
+  replace_theme(
+    axis.line.x = element_blank(),
+    axis.line.y = element_blank(),
+    axis.title.x = element_markdown(family = "ns", margin = margin(0.5, 0, 0.5, 0, "lines")),
+    axis.title.y = element_markdown(family = "ns", angle= 90, margin = margin(0, 0.5, 0, 0.5, "lines")),
+  )
+showtext_auto()
+folder = "~/Dropbox/MS_Terada_Greg/"
+folder = "./Data/"
+fnames = dir(folder, recursive = TRUE)
+```
+
+
+```{r}
+#| include: false
+ftext = "Inhibition"
+fname = str_c(folder, str_subset(fnames, ftext)) 
+esheets = excel_sheets(fname)
+data = tibble(fname, esheets) |> 
+  mutate(data = map2(fname, esheets, \(fname = fname, esheets = esheets) {
+    read_xlsx(fname, sheet = esheets[1]) |> select(Temp, Hours, PAR, matches("Y\\(II\\)"))
+  } ))
+
+data = data |> 
+  select(esheets, data) |> 
+  unnest(data) |> 
+  pivot_longer(matches("^Y")) |> 
+  mutate(ID = as.numeric(str_extract(name, "[0-9]+"))) |> 
+  mutate(Temp = factor(Temp, levels = c(28, 16, 4)))
+```
+
+```{r}
+dynamic_labeller <- as_labeller(function(x) {
+  str_glue("{x} &mu;mol photons m<sup>-2</sup> s<sup>-1</sup>")
+})
+
+xlabel = "Time of exposure (hours)"
+ylabel = "Effective quantum yield (&Delta;F/Fm&prime;)"
+xbreaks = unique(data$Hours)
+xbreaks = seq(min(xbreaks), max(xbreaks), by = 2)
+
+labeldf =
+  data |> expand(Temp, PAR, x = min(Hours), y = 1) |> 
+  mutate(
+    l = str_glue("({LETTERS[seq_along(Temp)]}) {Temp}&deg;C")
+  )
+labeldf2 = 
+  tibble(x = c(18-6)/2 + 6, y = 0) |> 
+  mutate(l = "Dim-light acclimation")
+
+p1 = ggplot(data) + 
+  geom_rect(aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax), data = tibble(xmin = 6, xmax = 18, ymin = 0, ymax = 1), fill = "grey") +
+  geom_richtext(aes(x = x, y = y, label = l),
+                data = labeldf2,
+    vjust = 0, hjust = 0.5,
+    color = "transparent",
+    fill = "transparent",
+    text.color = "black",
+    family = "ns", 
+    size = 3
+  ) +
+  geom_point(aes(x = Hours, y = value), 
+             position = position_jitter(width = 0.2), 
+             shape = 21,
+             fill = "black",
+             stroke = 0,
+             alpha = 0.8) +
+  geom_richtext(aes(x = x, y = y, label = l),
+                data = labeldf,
+    vjust = 1, hjust = 0,
+    color = "transparent",
+    fill = "transparent",
+    text.color = "black",
+    family = "ns", 
+    size = 3
+  ) +
+  scale_x_continuous(xlabel, breaks = xbreaks, limits = range(xbreaks)) +
+  scale_y_continuous(ylabel, breaks = seq(0, 1, by = 0.25), limits = c(0, 1)) +
+  facet_grid(rows = vars(Temp), cols = vars(PAR), labeller = labeller(PAR = dynamic_labeller)) +
+  theme(
+    strip.text.y = element_blank(),
+    strip.text.x = element_markdown(family = "ns"),
+    strip.background = element_blank()
+  )
+pdfname = "PAM-Temperature-Inhibition-plot.pdf"
+save_plot(pdfname, plot = p1, width = 80 * 2, height = 80*1.5)
+```
+
+
+
+::: {#fig-pam-temp-inhib}
+
+
+```{r}
+image_read(str_replace(pdfname, "pdf", "png"))
+```
+
+The hourly response of the effective quantum yield (&Delta; F/Fm&prime;) in the green alga, 
+*Ulva australis* from Nagashima Island, Kagoshima, Japan.
+The experiments were conducted at temperature treatments of (A, B) 28&deg;C, (C, D) 16&deg;C, and (E, F) 4&deg;C crossed with 
+irradiances of (A, C, D) 200 &mu;mol photons m^-2^ s^-1^ and (B, D, F) 1000 &mu;mol photons m^-2^ s^-1^.
+The explants were acclimated for 12 hours of dim-light treatment (20 &mu;mol photons m^-2^ s^-1^) and exposed to 6 hours of light.
+The points are jittered horizontally for clarity (n = 10).
+:::
+
