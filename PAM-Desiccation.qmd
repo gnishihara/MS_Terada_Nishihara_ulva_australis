@@ -1,5 +1,5 @@
 ---
-title: "2026 *Ulva australis* study"
+title: "2026 *Ulva australis* Dessiccation analysis"
 title-block-banner: true
 date: today
 date-format: "YYYY MMM MM"
@@ -14,12 +14,6 @@ execute:
   message: false
   warning: false
 ---
-
-The response of the photochemical efficiency (&Delta; F/Fm&prime;) in the green alga, 
-*Ulva australis* from Nagashima Island, Kagoshima, Japan.
-The experiments were conducted at temperature treatments of 4 to 36 &deg;C 
-after 1, 3, 5, and 7 days of incubation at
-50 &mu;mol photons m^-2^ s^-1^ and a 12L12D photoperiod.
 
 ```{r}
 #| include: false
@@ -57,35 +51,47 @@ fnames = dir(folder, recursive = TRUE)
 
 
 ```{r}
-ftext = "PAM_Temp"
+ftext = "1st"
 fname = str_c(folder, str_subset(fnames, ftext)) 
-esheets = excel_sheets(fname)
-data = tibble(fname, esheets) |> 
-  mutate(data = map2(fname, esheets, \(fname = fname, esheets = esheets) {
-    read_xlsx(fname, sheet = esheets[1]) |> select(Temp, PAR, matches("Y\\(II\\)"))
-  } )) |> 
-  mutate(Days = str_extract(esheets, "[0-9]+")) |> 
-  select(Days, data) |> 
-  unnest(data) |> 
+data = read_xlsx(fname, range = "A1:P170") |> drop_na()
+data = data |> select(state = Status, minutes = Min, N = `#`, period = `...4`, matches("^Y"))
+data = data |> mutate(period = str_extract(period, "[0-9]+(?=m)")) |> 
   pivot_longer(matches("^Y")) |> 
   mutate(ID = as.numeric(str_extract(name, "[0-9]+")))
+data2 = read_xlsx(fname, range = "A1:D180") |> drop_na()
+data2 = data2 |> filter(str_detect(Status, "Desicc"))
+data3 = read_xlsx(fname, range = "V1:AA180") |> drop_na()
+data23 = 
+  bind_cols(data2, data3) |> 
+   select(minutes = Min, N = `#`, period = `...4`, 
+          fw0 = matches("Initial"),
+          fw1 = matches("Fresh W"),
+          foil = matches("Foil"),
+          total = matches("Sample")) |> 
+  mutate(dw = total - foil) |> 
+  mutate(awc = (fw1 - dw) / (fw0 - dw) * 100) |> 
+  mutate(period = str_extract(period, "[0-9]+(?=m)"))
+data = full_join(data, data23, by = join_by(minutes, N, period))
 
+odata = data
+data = odata |> filter(!str_detect(state, "Init")) |> 
+  mutate(state = factor(state, levels = c("Desiccation", "30-min rehydration", "1-d rehydration")))
 ```
 
 ```{r}
-xlabel = "Temperature (&deg;C)"
+xlabel = "Time of exposure (min)"
 ylabel = "Effective quantum yield (&Delta;F/Fm&prime;)"
-xbreaks = unique(data$Temp)
-xbreaks = seq(min(xbreaks), max(xbreaks), by = 4)
+xbreaks = unique(data$minutes)
+xbreaks = seq(min(xbreaks), max(xbreaks), by = 20)
 # 1. Create a label dataframe 
 # We take distinct categories and generate the "A: ..." label here
-labeldf = data |> expand(Days, x = min(Temp), y = 1) |> 
+labeldf = data |> expand(state, x = min(minutes), y = 1) |> 
   mutate(
-    l = str_glue("({LETTERS[seq_along(Days)]}) Incubation duration: {Days}-d ")
+    l = str_glue("({LETTERS[seq_along(state)]}) {state}")
   )
 
 p1 = ggplot(data) + 
-  geom_point(aes(x = Temp, y = value), 
+  geom_point(aes(x = minutes, y = value), 
              position = position_jitter(width = 0.2), 
              shape = 21,
              fill = "black",
@@ -97,36 +103,98 @@ p1 = ggplot(data) +
     color = "transparent",
     fill = "transparent",
     text.color = "black",
-    family = "ns", 
+    family = "ns",
     size = 3
   ) +
   scale_x_continuous(xlabel, breaks = xbreaks, limits = range(xbreaks)) +
   scale_y_continuous(ylabel, breaks = seq(0, 1, by = 0.25), limits = c(0, 1)) +
-  facet_wrap(vars(Days), ncol = 2) +
+  facet_wrap(vars(state), ncol = 1) +
   theme(
     strip.text = element_blank(),
     strip.background = element_blank()
   )
+p1
 
-pdfname = "PAM-Temperature-plot.pdf"
+pdfname = "PAM-Desiccation-minutes-plot.pdf"
 save_plot(pdfname, plot = p1, width = 80 * 2, height = 80)
 ```
 
 
 
-::: {#fig-pam-temp}
+::: {#fig-pam-desiccation-01}
 
 
 ```{r}
 image_read(str_replace(pdfname, "pdf", "png"))
 ```
 
-The response of the photochemical efficiency (&Delta; F/Fm&prime;) in the green alga, 
-*Ulva australis* from Nagashima Island, Kagoshima, Japan.
-The experiments were conducted at temperature treatments of 4 to 36 &deg;C 
-after 1, 3, 5, and 7 days of incubation at
-50 &mu;mol photons m^-2^ s^-1^ and a 12L12D photoperiod.
-The points are jittered horizontally for clarity (n = 10).
+The chronological response of the effective quantum yield (&Delta;F/Fm&prime;) in the 
+green alga, *Ulva australis* from Nagashima Island, Kagoshima, Japan to (A) only air 
+exposure, (B) air exposure and subsequent 30-minute rehydration, and (C) 
+air exposure and subsequent 1-day rehydration conducted 
+at 20&deg;C and 50% humidity under the dim light (20 &mu;mol 
+photons m^-2^ s^-1^). 
+The points are jittered horizontally for clarity (n = 50).
+
+:::
+
+
+```{r}
+xlabel = "Relative water content (%)"
+ylabel = "Effective quantum yield (&Delta;F/Fm&prime;)"
+xbreaks = unique(data$awc)
+xbreaks = seq(0, 100, by = 20)
+# 1. Create a label dataframe 
+# We take distinct categories and generate the "A: ..." label here
+labeldf = data |> expand(state, x = 0, y = 1) |> 
+  mutate(
+    l = str_glue("({LETTERS[seq_along(state)]}) {state}")
+  )
+
+p1 = ggplot(data) + 
+  geom_point(aes(x = awc, y = value), 
+             position = position_jitter(width = 0.2), 
+             shape = 21,
+             fill = "black",
+             stroke = 0,
+             alpha = 0.8) +
+  geom_richtext(aes(x = x, y = y, label = l),
+                data = labeldf,
+    vjust = 1, hjust = 0,
+    color = "transparent",
+    fill = "transparent",
+    text.color = "black",
+    family = "ns",
+    size = 3
+  ) +
+  scale_x_continuous(xlabel, breaks = xbreaks, limits = range(xbreaks)) +
+  scale_y_continuous(ylabel, breaks = seq(0, 1, by = 0.25), limits = c(0, 1)) +
+  facet_wrap(vars(state), ncol = 1) +
+  theme(
+    strip.text = element_blank(),
+    strip.background = element_blank()
+  )
+p1
+
+pdfname = "PAM-Desiccation-RWC-plot.pdf"
+save_plot(pdfname, plot = p1, width = 80 * 2, height = 80)
+```
+
+::: {#fig-pam-dessication-02}
+
+
+```{r}
+image_read(str_replace(pdfname, "pdf", "png"))
+```
+
+The response of the effective quantum yield (&Delta;F/Fm&prime;) in the 
+green alga, *Ulva australis* from Nagashima Island, Kagoshima, Japan along the relative water content (%RWC) 
+to (A) only air exposure, 
+(B) air exposure and subsequent 30-minute rehydration, and 
+(C) air exposure and subsequent 1-day rehydration conducted 
+at 20&deg;C and 50% humidity under the dim light (20 &mu;mol 
+photons m^-2^ s^-1^). 
+The points are jittered horizontally for clarity (n = 50).
 
 :::
 

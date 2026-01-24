@@ -1,5 +1,5 @@
 ---
-title: "2026 *Ulva australis* study"
+title: "2026 *Ulva australis* PAM Kinetics"
 title-block-banner: true
 date: today
 date-format: "YYYY MMM MM"
@@ -14,12 +14,6 @@ execute:
   message: false
   warning: false
 ---
-
-The response of the photochemical efficiency (&Delta; F/Fm&prime;) in the green alga, 
-*Ulva australis* from Nagashima Island, Kagoshima, Japan.
-The experiments were conducted at temperature treatments of 4 to 36 &deg;C 
-after 1, 3, 5, and 7 days of incubation at
-50 &mu;mol photons m^-2^ s^-1^ and a 12L12D photoperiod.
 
 ```{r}
 #| include: false
@@ -57,35 +51,45 @@ fnames = dir(folder, recursive = TRUE)
 
 
 ```{r}
-ftext = "PAM_Temp"
+ftext = "1800sec"
 fname = str_c(folder, str_subset(fnames, ftext)) 
 esheets = excel_sheets(fname)
-data = tibble(fname, esheets) |> 
-  mutate(data = map2(fname, esheets, \(fname = fname, esheets = esheets) {
-    read_xlsx(fname, sheet = esheets[1]) |> select(Temp, PAR, matches("Y\\(II\\)"))
-  } )) |> 
-  mutate(Days = str_extract(esheets, "[0-9]+")) |> 
-  select(Days, data) |> 
-  unnest(data) |> 
-  pivot_longer(matches("^Y")) |> 
-  mutate(ID = as.numeric(str_extract(name, "[0-9]+")))
+d1800= read_xlsx(fname, range = "A1:BA120") |> 
+  pivot_longer(matches("^Y"))
+ftext = "900sec"
+fname = str_c(folder, str_subset(fnames, ftext)) 
+esheets = excel_sheets(fname)
+d0900 = read_xlsx(fname, range = "A1:BA120") |> 
+  pivot_longer(matches("^Y"))
 
+data = bind_rows(`1800` = d1800, `900` = d0900, .id = "period")
+
+data = data |> 
+  mutate(period = as.numeric(period)) |> 
+  select(period,
+         tau = matches("Sec"),
+         name, value) |> 
+  group_by(period) |> 
+  mutate(N = seq_along(name)) |> 
+  ungroup() |> 
+  select(-name) |> 
+  drop_na()
 ```
 
 ```{r}
-xlabel = "Temperature (&deg;C)"
+xlabel = "Time of exposure (sec)"
 ylabel = "Effective quantum yield (&Delta;F/Fm&prime;)"
-xbreaks = unique(data$Temp)
-xbreaks = seq(min(xbreaks), max(xbreaks), by = 4)
+xbreaks = unique(data$tau)
+xbreaks = seq(0, 4200, by = 600)
 # 1. Create a label dataframe 
 # We take distinct categories and generate the "A: ..." label here
-labeldf = data |> expand(Days, x = min(Temp), y = 1) |> 
+labeldf = data |> expand(period, x = 0, y = 1) |> 
   mutate(
-    l = str_glue("({LETTERS[seq_along(Days)]}) Incubation duration: {Days}-d ")
+    l = str_glue("({LETTERS[seq_along(period)]}) {period}-sec desiccation ")
   )
 
 p1 = ggplot(data) + 
-  geom_point(aes(x = Temp, y = value), 
+  geom_point(aes(x = tau, y = value), 
              position = position_jitter(width = 0.2), 
              shape = 21,
              fill = "black",
@@ -102,31 +106,32 @@ p1 = ggplot(data) +
   ) +
   scale_x_continuous(xlabel, breaks = xbreaks, limits = range(xbreaks)) +
   scale_y_continuous(ylabel, breaks = seq(0, 1, by = 0.25), limits = c(0, 1)) +
-  facet_wrap(vars(Days), ncol = 2) +
+  facet_wrap(vars(period), ncol = 2) +
   theme(
     strip.text = element_blank(),
     strip.background = element_blank()
   )
+p1
 
-pdfname = "PAM-Temperature-plot.pdf"
-save_plot(pdfname, plot = p1, width = 80 * 2, height = 80)
+pdfname = "PAM-Kinetics-plot.pdf"
+save_plot(pdfname, plot = p1, width = 80, height = 80*1.5)
 ```
 
 
 
-::: {#fig-pam-temp}
+::: {#fig-pam-kinetics}
 
 
 ```{r}
 image_read(str_replace(pdfname, "pdf", "png"))
 ```
 
-The response of the photochemical efficiency (&Delta; F/Fm&prime;) in the green alga, 
-*Ulva australis* from Nagashima Island, Kagoshima, Japan.
-The experiments were conducted at temperature treatments of 4 to 36 &deg;C 
-after 1, 3, 5, and 7 days of incubation at
-50 &mu;mol photons m^-2^ s^-1^ and a 12L12D photoperiod.
-The points are jittered horizontally for clarity (n = 10).
-
+The real-time response of the effective quantum yield (&Delta;F/Fm&prime;) in the 
+green alga, *Ulva australis* from Nagashima Island, Kagoshima, Japan to 
+(A) 1800 seconds of air exposure and 1800 seconds of rehydration and
+(B) 900 seconds of air exposure and 1800 seconds of rehydration.
+The temperature was 20&deg;C and the humidity was 40%.
+Rehydration occurred under the dim light (20 &mu;mol photons m^-2^ s^-1^).
+The points are jittered horizontally for clarity (n = 50).
 :::
 

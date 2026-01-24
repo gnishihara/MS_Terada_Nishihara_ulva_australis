@@ -1,5 +1,5 @@
 ---
-title: "2026 *Ulva australis* study"
+title: "2026 *Ulva australis* PAM -- Salinity analysis"
 title-block-banner: true
 date: today
 date-format: "YYYY MMM MM"
@@ -14,12 +14,6 @@ execute:
   message: false
   warning: false
 ---
-
-The response of the photochemical efficiency (&Delta; F/Fm&prime;) in the green alga, 
-*Ulva australis* from Nagashima Island, Kagoshima, Japan.
-The experiments were conducted at temperature treatments of 4 to 36 &deg;C 
-after 1, 3, 5, and 7 days of incubation at
-50 &mu;mol photons m^-2^ s^-1^ and a 12L12D photoperiod.
 
 ```{r}
 #| include: false
@@ -57,12 +51,13 @@ fnames = dir(folder, recursive = TRUE)
 
 
 ```{r}
-ftext = "PAM_Temp"
+ftext = "salinity"
 fname = str_c(folder, str_subset(fnames, ftext)) 
 esheets = excel_sheets(fname)
 data = tibble(fname, esheets) |> 
   mutate(data = map2(fname, esheets, \(fname = fname, esheets = esheets) {
-    read_xlsx(fname, sheet = esheets[1]) |> select(Temp, PAR, matches("Y\\(II\\)"))
+    read_xlsx(fname, sheet = esheets[1], range = "A1:M14") |>
+      select(PSU, matches("Y\\(II\\)"))
   } )) |> 
   mutate(Days = str_extract(esheets, "[0-9]+")) |> 
   select(Days, data) |> 
@@ -73,19 +68,19 @@ data = tibble(fname, esheets) |>
 ```
 
 ```{r}
-xlabel = "Temperature (&deg;C)"
+xlabel = "Salinity (PSU)"
 ylabel = "Effective quantum yield (&Delta;F/Fm&prime;)"
-xbreaks = unique(data$Temp)
-xbreaks = seq(min(xbreaks), max(xbreaks), by = 4)
+xbreaks = unique(data$PSU)
+xbreaks = seq(0, 100, by = 20)
 # 1. Create a label dataframe 
 # We take distinct categories and generate the "A: ..." label here
-labeldf = data |> expand(Days, x = min(Temp), y = 1) |> 
+labeldf = data |> expand(Days, x = min(PSU), y = 1) |> 
   mutate(
     l = str_glue("({LETTERS[seq_along(Days)]}) Incubation duration: {Days}-d ")
   )
 
 p1 = ggplot(data) + 
-  geom_point(aes(x = Temp, y = value), 
+  geom_point(aes(x = PSU, y = value), 
              position = position_jitter(width = 0.2), 
              shape = 21,
              fill = "black",
@@ -108,7 +103,7 @@ p1 = ggplot(data) +
     strip.background = element_blank()
   )
 
-pdfname = "PAM-Temperature-plot.pdf"
+pdfname = "PAM-Salinity-plot.pdf"
 save_plot(pdfname, plot = p1, width = 80 * 2, height = 80)
 ```
 
@@ -121,12 +116,11 @@ save_plot(pdfname, plot = p1, width = 80 * 2, height = 80)
 image_read(str_replace(pdfname, "pdf", "png"))
 ```
 
-The response of the photochemical efficiency (&Delta; F/Fm&prime;) in the green alga, 
+The response of the effective quantum yield (&Delta; F/Fm&prime;) in the green alga, 
 *Ulva australis* from Nagashima Island, Kagoshima, Japan.
-The experiments were conducted at temperature treatments of 4 to 36 &deg;C 
-after 1, 3, 5, and 7 days of incubation at
-50 &mu;mol photons m^-2^ s^-1^ and a 12L12D photoperiod.
+The experiments were conducted at salinity treatments of 0 to 100 PSU  
+after 1, 3, 5, and 7 days of incubation at 16 &deg;C and
+20 &mu;mol photons m^-2^ s^-1^ and a 12L12D photoperiod.
 The points are jittered horizontally for clarity (n = 10).
-
 :::
 
