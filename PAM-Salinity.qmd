@@ -167,47 +167,51 @@ priors_full = c(
 
 
 ```{r}
-#| label: nullmodel
+#| label: fullmodel
 
 plan(cluster, workers = "mimir")
-futurenull = future({
+futurefull = future({
   brm(
     nullmodel,
     data = data,
-    prior = priors_null,
+    prior = priors_full,
     chains = chains,
     cores = cores,
     seed = seed,
     iter = iterations,
     warmup = warmup,
     refresh = 0,
-    file = filename_null,
+    file = filename_full,
     file_refit = file_refit,
     backend = "cmdstanr",
     threads = threading(4),
     control = control,
     save_pars = save_pars(all = TRUE)
   )
-})
+}, seed = 2026)
 
 z = 0
-while(!resolved(futurenull)) {
+sleepsecs = 50
+while(!resolved(futurefull)) {
   z0 = lubridate::now()
   message("Model is still sampling... ", z0)
-  Sys.sleep(10) # Check every 10 seconds
-  z = z + 10
+  Sys.sleep(sleepsecs) # Check every 10 seconds
+  z = z + sleepsecs
 }
 
-message("Done! You can now run: fit <- value(futurenull)\n", "Total time is: ", z/60, " minutes.")
+message("Done! You can now run: fit <- value(futurefull)\n", "Total time is: ", z/60, " minutes.")
 plan(sequential)
 ```
 
 ```{r}
-bout_null = value(futurenull)
+bout_full = value(futurefull)
 
 require(ssh)
-remote = str_c("/home/gnishihara/MS_Terada_Nishihara_ulva_australis_202601/", filename_null, ".rds") |> print()
+remote = str_c("/home/gnishihara/MS_Terada_Nishihara_ulva_australis_202601/", filename_full, ".rds") |> print()
 session = ssh_connect("mimir")
 scp_download(session, files = remote, to = "./")
 ssh_disconnect(session)
+
+bout_full
+
 ```
