@@ -10,10 +10,56 @@ author:
   - name: Gregory N. Nishihara
   - name: Ryuta Terada
 execute: 
+  freeze: true
+  cache: true
   echo: false
   message: false
   warning: false
+editor: 
+  markdown: 
+    wrap: 72
+bibliography: references.bib
+format:
+  html:
+    grid:
+      margin-width: 200px
+      sidebar-width: 200px
+      body-width: 900px
+    tbl-cap-location: top
+    css: custom.css
 ---
+
+## Methods
+
+We analyzed the response variable using an ordered Beta model [@kubinec2023]. 
+This model is specifically designed for continuous data bounded on the interval $[0, 1]$ that includes exact zeros and ones (i.e., $y \in [0, 1]$). 
+Zero inflated Beta and zero-one inflated beta models that we have used in the past [@borlongan2020;@terada2024] model the zeros and ones as separate Bernoulli processes. 
+The ordered Beta model uses a single latent distribution that is censored at the boundaries, providing a more parsimonious description of the data generation process [@kubinec2023] and simplied analysis.
+
+The observed data $y_i$ is assumed to occur from a latent variable $y^*_i$ which follows a Beta distribution, 
+but with its support extended beyond the standard $(0, 1)$ interval. 
+The support of the latent variable is defined as $[-\kappa, 1 + \kappa]$, where $\kappa > 0$ is an estimated "exceedance" parameter.
+The linear predictor of the model (@eq-model-form) is a function of the predictor (Hours).
+
+$$
+\begin{aligned}
+logit(\mu) &= \beta_h \cdot Hours \\
+\tilde{y} &\sim Beta(\mu, \phi) \\
+y^* &=\tilde{y} (1 +2\kappa)-\kappa\\
+y &= 
+\begin{cases}
+0 &\;\text{if}\; y \le 0\\
+y^* &\;\text{if}\; 0 < y^* < 1 \\
+1 &\;\text{if}\; y^* \ge 1
+\end{cases}
+\\
+\end{aligned}
+$$ {#eq-model-form}
+
+The the model parameters were assigned weakly informative distributions.
+The regression coefficient $(\beta_h)$ was assigned a Student's t-distribution with 3 degrees of freedom, a location of 0, and scale of 2.5.
+The exceedance parameter $(\kappa)$ and precision parameter $(\phi)$ were assigned a gamma prior with a shape and scale of 0.01.
+
 
 ```{r}
 #| include: false
@@ -25,6 +71,8 @@ library(patchwork)
 library(showtext)
 library(brms)
 library(tidybayes)
+library(bayestestR)
+library(emmeans)
 library(gt)
 library(gnnlab)
 library(utils)
@@ -48,7 +96,6 @@ folder = "~/Dropbox/MS_Terada_Greg/"
 folder = "./Data/"
 fnames = dir(folder, recursive = TRUE)
 ```
-
 
 ```{r}
 #| include: false
@@ -91,12 +138,12 @@ p1 = ggplot(data) +
   geom_rect(aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax), data = tibble(xmin = 6, xmax = 18, ymin = 0, ymax = 1), fill = "grey") +
   geom_richtext(aes(x = x, y = y, label = l),
                 data = labeldf2,
-    vjust = 0, hjust = 0.5,
-    color = "transparent",
-    fill = "transparent",
-    text.color = "black",
-    family = "ns", 
-    size = 3
+                vjust = 0, hjust = 0.5,
+                color = "transparent",
+                fill = "transparent",
+                text.color = "black",
+                family = "ns", 
+                size = 3
   ) +
   geom_point(aes(x = Hours, y = value), 
              position = position_jitter(width = 0.2), 
@@ -106,12 +153,12 @@ p1 = ggplot(data) +
              alpha = 0.8) +
   geom_richtext(aes(x = x, y = y, label = l),
                 data = labeldf,
-    vjust = 1, hjust = 0,
-    color = "transparent",
-    fill = "transparent",
-    text.color = "black",
-    family = "ns", 
-    size = 3
+                vjust = 1, hjust = 0,
+                color = "transparent",
+                fill = "transparent",
+                text.color = "black",
+                family = "ns", 
+                size = 3
   ) +
   scale_x_continuous(xlabel, breaks = xbreaks, limits = range(xbreaks)) +
   scale_y_continuous(ylabel, breaks = seq(0, 1, by = 0.25), limits = c(0, 1)) +
@@ -126,19 +173,451 @@ save_plot(pdfname, plot = p1, width = 80 * 2, height = 80*1.5)
 ```
 
 
-
-::: {#fig-pam-temp-inhib}
+## Results 
 
 
 ```{r}
 image_read(str_replace(pdfname, "pdf", "png"))
 ```
 
-The hourly response of the effective quantum yield (&Delta; F/Fm&prime;) in the green alga, 
-*Ulva australis* from Nagashima Island, Kagoshima, Japan.
-The experiments were conducted at temperature treatments of (A, B) 28&deg;C, (C, D) 16&deg;C, and (E, F) 4&deg;C crossed with 
-irradiances of (A, C, D) 200 &mu;mol photons m^-2^ s^-1^ and (B, D, F) 1000 &mu;mol photons m^-2^ s^-1^.
-The explants were acclimated for 12 hours of dim-light treatment (20 &mu;mol photons m^-2^ s^-1^) and exposed to 6 hours of light.
-The points are jittered horizontally for clarity (n = 10).
-:::
+Fig. 1. The hourly response of the effective quantum yield (&Delta; F/Fm&prime;) in the
+green alga, *Ulva australis* from Nagashima Island, Kagoshima, Japan.
+The experiments were conducted at temperature treatments of (A, B) 28&deg;C,
+(C, D) 16&deg;C, and (E, F) 4&deg;C crossed with irradiances of (A, C, D) 200
+&mu;mol photons m^-2^ s^-1^ and (B, D, F) 1000 &mu;mol photons m^-2^ s^-1^.
+The explants were acclimated for 12 hours of dim-light treatment (20
+&mu;mol photons m^-2^ s^-1^) and exposed to 6 hours of light. The points
+are jittered horizontally for clarity (n = 10).
 
+Table 1. The mean, standard deviation (Std. Dev.), and standard error (Std. Err.) of the effective quantum yield (&Delta;Fv/Fm&prime;).
+
+```{r}
+data |> 
+  arrange(Temp, PAR) |> 
+  group_by(Temp, PAR, Hours) |> 
+  reframe(across(value, list(m = mean, sd = sd, se = se, n = length))) |> 
+  gt() |> 
+  cols_label(
+    Temp = "Temperature",
+    PAR = "Irradiance",
+    Hours = "Time of exposure",
+    value_m = "Mean",
+    value_sd = "Std. Dev.",
+    value_se = "Std. Error",
+    value_n = "N"
+  ) |> 
+  fmt_number(columns = c(value_m, value_sd), decimals = 3) |> 
+  fmt_number(columns = value_se, decimals = 3) |> 
+  cols_align(align = "right") |> 
+  tab_footnote(
+    footnote = html("&mu;mol photons m<sup>-2</sup> s<sup>-1</sup>"),
+    locations = cells_column_labels(columns = PAR)
+  ) |> 
+  tab_footnote(
+    footnote = html("&deg;C"),
+    locations = cells_column_labels(columns = Temp)
+  ) |> 
+  tab_footnote(
+    footnote = "hours",
+    locations = cells_column_labels(columns = Hours),
+  ) |> 
+  opt_footnote_spec(spec_ref = "^xb", spec_ftr = "(x)") 
+```
+
+```{r}
+data2 = data |> 
+  mutate(across(c(Hours, Temp, PAR), as_factor)) |> 
+  filter(Hours %in% c(0, 6, 18))
+
+fullmodel = bf(value ~ 0 + Hours) + xbeta()
+nullmodel = bf(value ~ 1) + xbeta()
+# get_prior(fullmodel, data = data)
+# get_prior(nullmodel, data = data)
+
+null_priors = c(
+  prior(student_t(3, 0, 2.5), class = Intercept),
+  prior(gamma(0.01, 0.01), clas = kappa, lb = 0),
+  prior(gamma(0.01, 0.01), clas = phi, lb = 0),
+  NULL
+)
+
+full_priors = c(
+  prior(student_t(3, 0, 2.5), class = b),
+  prior(gamma(0.01, 0.01), clas = kappa, lb = 0),
+  prior(gamma(0.01, 0.01), clas = phi, lb = 0)
+)
+
+cores = chains = 4
+seed = 2026
+warmup = 1000
+iterations = warmup + 1000
+file_refit = "never"
+control = list(adapt_delta = 0.95, max_treedepth = 15)
+
+nullout = brm(
+  nullmodel,
+  data = data2,
+  prior = null_priors,
+  chains = chains,
+  cores = cores,
+  seed = seed,
+  iter = iterations,
+  warmup = warmup,
+  refresh = 100,
+  backend = "cmdstanr",
+  threads = threading(4),
+  file = "pam-inhibition-null-model",
+  file_refit = file_refit,
+  control = control
+)
+```
+
+```{r}
+
+cores = chains = 5
+seed = 2026
+warmup = 4000
+iterations = warmup + 10000
+file_refit = "never"
+control = list(adapt_delta = 0.95, max_treedepth = 15)
+
+data2 = data2 |> 
+  group_nest(PAR, Temp) |> 
+  mutate(nullout = pmap(list(data, PAR, Temp), \(data, PAR, Temp) {
+    x1 = ifelse(PAR == 1000, "HL", "LL")
+    x2 = case_when(
+      Temp == 4 ~ "04",
+      Temp == 16 ~ "16",
+      TRUE ~ "28"
+    )
+    nullmodel = bf(value ~ 1) + xbeta()
+    null_priors = c(
+      prior(student_t(3, 0, 2.5), class = Intercept),
+      prior(gamma(0.01, 0.01), clas = kappa, lb = 0),
+      prior(gamma(0.01, 0.01), clas = phi, lb = 0),
+      NULL
+    )
+    # cores = chains = 4
+    # seed = 2026
+    # warmup = 1000
+    # iterations = warmup + 1000
+    # file_refit = "on_change"
+    # control = list(adapt_delta = 0.95, max_treedepth = 15)
+    filename = str_glue("pam-inhibition-{x1}{x2}-nullmodel")
+    brm(
+      nullmodel,
+      data = data,
+      prior = null_priors,
+      chains = chains,
+      cores = cores,
+      seed = seed,
+      iter = iterations,
+      warmup = warmup,
+      refresh = 0,
+      backend = "cmdstanr",
+      threads = threading(4),
+      file = filename,
+      file_refit = file_refit,
+      control = control,
+      save_pars = save_pars(all = TRUE)
+    )
+  })) |> 
+  mutate(fullout = pmap(list(data, PAR, Temp), \(data, PAR, Temp) {
+    x1 = ifelse(PAR == 1000, "HL", "LL")
+    x2 = case_when(
+      Temp == 4 ~ "04",
+      Temp == 16 ~ "16",
+      TRUE ~ "28"
+    )
+    fullmodel = bf(value ~ 0 + Hours) + xbeta()
+    full_priors = c(
+      prior(student_t(3, 0, 2.5), class = b),
+      # prior(student_t(3, 0, 2.5), class = sd, lb = 0),
+      prior(gamma(0.01, 0.01), clas = kappa, lb = 0),
+      prior(gamma(0.01, 0.01), clas = phi, lb = 0),
+      NULL
+    )
+    
+    # cores = chains = 4
+    # seed = 2026
+    # warmup = 1000
+    # iterations = warmup + 1000
+    # file_refit = "on_change"
+    # control = list(adapt_delta = 0.95, max_treedepth = 15)
+    filename = str_glue("pam-inhibition-{x1}{x2}-fullmodel")
+    mout = brm(
+      fullmodel,
+      data = data,
+      prior = full_priors,
+      chains = chains,
+      cores = cores,
+      seed = seed,
+      iter = iterations,
+      warmup = warmup,
+      refresh = 0,
+      backend = "cmdstanr",
+      threads = threading(4),
+      file = filename,
+      file_refit = file_refit,
+      control = control,
+      save_pars = save_pars(all = TRUE)
+    )
+    # mout = add_criterion(mout, criterion = c("loo", "waic"), seed = 2025, cores = cores)
+    return(mout)
+  }))
+
+
+```
+
+```{r}
+data2 = data2 |> 
+  mutate(e1 = map(fullout, \(e1) {emmeans(e1, ~Hours)})) |> 
+  mutate(e0 = map(e1, \(e1) { contrast(e1, "pairwise")})) |> 
+  mutate(dout = map(e0, \(x) {
+    describe_posterior(x, ci = 0.95, rope_ci = 1, rope_range = c(-0.1, 0.1) * c(pi/sqrt(3)))
+  }))
+# roperange = c(-0.1, 0.1) * c(pi / sqrt(3))
+# e1 = emmeans(fullout, ~ Hours|Temp, by = c("PAR"))
+# e0 = contrast(e1, "pairwise", by = c( "PAR"))
+# The probability of direction is an index of effect existence and ranges from 50 to 100%.
+# The larger the pd the greater the evidence of an effect in the direction of the sign of the median.
+# ROPE: Region of Practical Equivalence
+# you can reject the null hypothesis if the % inside of ROPE is less than 2.5 %
+# dout = describe_posterior(e0, ci = c(0.95),rope_ci = 1, 
+# rope_range = roperange, verbose = FALSE)
+# pd(e0) |> pd_to_p()
+
+```
+
+
+Table 2. Multiple comparisons analysis of the difference in effective quantum
+yield. 
+The median effect and the 95% highest density credible interval (HDCI) is on the logit scale. 
+PD is the Probability of Direction, which is an index of the proportion of the posterior distribution that is in the direction of the sign of the median effect and ranges for 0.5 to 1.
+Pr. ROPE is the probability that 100% of the posterior distribution falls within the Region of Practical Equivalence (ROPE).
+ROPE ranges from 0 to 1, and if the Pr. ROPE is above 97.5% than there is a high likelihood that the posterior distribution of the effect falls completely within the ROPE.
+If the Pr. ROPE is below 2.5% then there is a high likelihood that the postererior distribution of the effect is not in side the ROPE.
+the 100% HDCI is within the region of practical equivalence (ROPE) and ranges from 0 to 1.
+
+```{r}
+data2 |> 
+  select(PAR, Temp, dout) |> 
+  unnest(dout) |> 
+  as_tibble() |>
+  mutate(across(c(PAR, Temp), ~as.numeric(as.character(.)))) |> 
+  arrange(PAR, Temp) |> 
+  mutate(contrast  = str_replace(contrast, "Hours0", "0 hrs")) |> 
+  mutate(contrast  = str_replace(contrast, "Hours6", "6 hrs")) |> 
+  mutate(contrast  = str_replace(contrast, "Hours18", "18 hrs")) |> 
+  mutate(hdci = sprintf("%0.3f to %0.3f", CI_low, CI_high)) |> 
+  mutate(pd = ifelse(pd <= 0.001, "< 0.001", sprintf("%0.3f", pd))) |> 
+  mutate(ROPE_Percentage = ifelse(ROPE_Percentage <= 0.001, "< 0.001", sprintf("%0.3f", ROPE_Percentage))) |> 
+  select(PAR, Temp, contrast, Median, hdci, pd, ROPE_Percentage) |> 
+  gt() |>
+  cols_label(
+    Temp = html("Temperature"),
+    PAR = html("Irradiance"),
+    contrast = "Contrast",
+    Median = "Median effect",
+    hdci = "95% HDCI",
+    pd = "PD",
+    ROPE_Percentage = "Pr. ROPE"
+  ) |> 
+  fmt_number(columns = c(Median), decimals = 3) |> 
+  cols_align(align = "right") |> 
+  tab_footnote(
+    footnote = html("&mu;mol photons m<sup>-2</sup> s<sup>-1</sup>"),
+    locations = cells_column_labels(columns = PAR)
+  ) |> 
+  tab_footnote(
+    footnote = html("&deg;C"),
+    locations = cells_column_labels(columns = Temp)
+  ) |> 
+  tab_footnote(
+    footnote = "95% highest density credible interval",
+    locations = cells_column_labels(columns = hdci)
+  ) |> 
+  tab_footnote(
+    footnote = "Probability of direction",
+    locations = cells_column_labels(columns = pd)
+  ) |> 
+  tab_footnote(
+    footnote = "Probability of being within the region of practical equivalence",
+    locations = cells_column_labels(columns = ROPE_Percentage)
+  ) |> 
+  tab_footnote(
+    footnote = "On the logit scale",
+    locations = cells_column_labels(columns = c(Median, hdci)),
+    placement = "left"
+  ) |> 
+  opt_footnote_spec(spec_ref = "^xb", spec_ftr = "(x)") 
+```
+
+We evaluated pairwise differences in the effective quantum yield between exposure times (0, 6, and 18 hours) across distinct experimental conditions defined by irradiance and temperature. 
+Posterior contrasts of the effective quantum yield revealed that the relationship between exposure times varied substantially depending on the thermal and light environment. 
+Specifically, the difference between the 0-hour and 6-hour time points was consistently positive across all conditions (PD > 0.999), indicating a reduction in the (effective) quantum yield at 6 hours relative to the start. 
+However, the subsequent recovery or difference at 18 hours appeared highly dependent on temperature.
+
+In the low-temperature treatment (4&deg;C), we observed distinct temporal dynamics. 
+At high irradiance (1000 &mu;mol photons m^-2^ s^-1^), the quantum yields on the logit scale were higher at both 6 hours (median difference = 7.51, 95%HDCI [2.61, 27.22]) and 18 hours (median difference = 7.21, 95% HDCI [2.54, 26.99]) when compared to the initial time point at 0 hours. 
+Notably, at this high irradiance, the difference between 6 and 18 hours was uncertain (PD = 0.54) and the credible interval was wide, amd included zero. 
+Conversely, at low irradiance (200 &mu;mol photons m^-2^ s^-1^), all three time points remained distinct, with a clear decline from 0 to 6 hours followed by a partial increase from 6 to 18 hours (median difference = -1.24, PD = 1.00).
+
+In warmer conditions (16&deg;C and 28&deg;C), a pattern of "practical equivalence" emerged between the start (0 hours) and end (18 hours) of the cycle, particularly under high light. 
+For example, at 16&deg;C and 1000 &mu;mol photons m^-2^ s^-1^, while the drop from 0 to 6 hours was clear
+(median difference = 1.94, PD = 1.00), the difference between 0 and 18 hours was negligible (-0.053, Pr. ROPE = 0.999). 
+When the Pr. ROPE of the effect between 0 hrs and 18 hrs is large, the quantum yield most likely returned to initial values. 
+A similar trend was observed at 28&deg;C; despite strong differences between 0 vs. 6 hours and 6 vs. 18 hours (PD = 1.00 for both), the magnitude of difference between 0 and 18 hours was small (median difference = 0.12) with a high probability of being practically negligible (Pr. ROPE = 0.73).
+
+--------------------------------------------------------------------------------
+
+## PD と Pr. ROPE について
+
+Some papers that discuss the concept of the region of practical equivalence (ROPE) and the
+probability of direction (PD) are @kruschke2021, @anderson2000, @ortega2017, @kruschke2015,
+@kruschke2017, and @Kruschke2013.
+
+**Probability of Direction (PD)** と **Probability of ROPE** の概念です。
+
+### 1. Probability of Direction (PD): 方向性の確率
+
+**「効果がプラス（またはマイナス）である確率は何％か？」**
+
+* **定義:** 事後分布（推定されたパラメータの分布）のうち、符号が「中央値と同じ方向」にある割合です。つまり、効果が「正」または「負」であるという確信度を表します。
+* **P値との関係:**
+頻度論の P値と非常に強い相関があります。P値が「帰無仮説が正しいとした場合に極端なデータが得られる確率」であるのに対し、PDは「効果が存在する（ゼロではない）確率」に近いです。
+* **PD  97.5%** は、両側検定の **P値  0.05** に相当します。
+* **PD  99.5%** は、**P値  0.01** に相当します。
+* PDが **1.00 (100%)** に近いほど、その効果が偶然ではなく、確実に特定の方向（増加または減少）に働いていることを示します。
+
+### 2. Probability of ROPE: 実質的等価領域の確率
+
+**「その効果は、実質的に『ゼロ』とみなせるか？」**
+
+* **ROPE (Region of Practical Equivalence) とは:**
+「効果が完全にゼロ」であることは稀ですが、「科学的・実用的に意味がないほど小さい（ほぼゼロ）」範囲は存在します。この範囲（例: -0.1 から 0.1 の間）を **ROPE** と呼びます。
+* **確率の意味:**
+事後分布の何％がこの ROPE の範囲内に収まっているかを示します。
+* **解釈:**
+- **Pr. ROPE が高い（例: > 0.95）:** 推定された効果のほとんどが「意味のない範囲」に入っています。「**実質的に差はない（帰無仮説を支持する）**」という結論を積極的に導くことができます。（P値では「差がない」ことを証明するのは難しいですが、ROPEなら可能です）
+-  **Pr. ROPE が低い（例: < 0.025）:** 効果の大部分が「意味のない範囲」の外にあります。「**実質的な意味を持つ差がある**」可能性が高いことを示唆します。
+
+
+### P値を用いた頻度論的解釈との対比まとめ
+
+| 指標 | 問いかけ | 頻度論（P値）での類似概念 |
+| --- | --- | --- |
+| **PD (Probability of Direction)** | 「効果がある（ゼロではない）と言えるか？」 | **有意差検定 (NHST)**<br><br>PDが高いほど、P値は低い（有意）。 |
+| **Pr. ROPE** | 「その効果は実質的に意味がある大きさか？」 | **同等性検定 (Equivalence Testing)**<br><br>サンプル数が多すぎて「統計的には有意だが、実用上は意味がない微差」が生じた場合、P値は小さくなりますが、Pr. ROPEは高くなる（差がないと判断できる）ことがあります。 |
+
+### 論文の結果解釈への応用
+
+* **PD = 1.000, Pr. ROPE < 0.001** の場合：
+「効果は確実に存在し（PD = 1.00）、かつその大きさは実質的に意味がある（ROPE確率がほぼ 0）。」→ 非常に強い有意な効果。
+* **PD = 0.992, Pr. ROPE = 0.992** の場合：
+「方向性は一定しているように見えるが（PDが高い）、効果の大きさ自体は極めて小さく、実質的には『差がない』とみなせる（ROPE確率が高い）。」→ 統計的に検出されたとしても、科学的に考察できる結果ではない。
+
+
+## 帰無仮説検定との比較
+
+NHST（帰無仮説検定）に対する、PD（Probability of Direction）および ROPE（実質的等価領域）の主な優位性は、
+**「『効果がない（帰無仮説）』ことを積極的に支持できるかどうか」**、
+そして**「実質的な意味（効果の大きさ）」を評価できるか**という点にあります。
+
+### 1. 「証拠がない」のか「無いという証拠」なのか？（NHSTの限界）
+
+NHST（P値）の最大の問題点は、有意差が出なかった場合（）の解釈が曖昧なことです。
+
+* **NHSTの場合:** 「帰無仮説を棄却できない（Fail to reject）」としか言えません。
+- これは、「効果が本当にゼロである」のか、単に「データ不足（パワー不足）で検出できなかっただけ」なのかを区別できません。
+- つまり、**「証拠がない（Absence of evidence）」**ことしか示せず、**「無いという証拠（Evidence of absence）」**にはなりません。
+* **ROPEの場合:** 「実質的にゼロとみなせる範囲」を定義し、事後分布の大部分がそこに含まれれば、**「効果は実質的にゼロである」と積極的に結論づける（帰無仮説を受容する）**ことができます。
+- これにより、「データは十分にあるが、効果は無視できるほど小さい」という強力な結論を導くことが可能です。
+
+
+
+### 2. 「統計的に有意」vs.「実質的に意味がある」（サンプルの罠）
+
+サンプルサイズ（N）が非常に大きい場合、NHSTには別の問題が発生します。
+
+* **NHSTの場合:**  N が巨大であれば、極めて微細でどうでもいい差であっても、P値は小さくなり「統計的に有意」と判定されてしまいます。これは科学的なミスリードを生む原因となります。
+* **PD & ROPEの場合:**
+- **PD:** 効果の存在確率は高く出ますが（「確かにプラス方向である」）、それだけでは判断しません。
+- **ROPE:** 効果の大きさが ROPE（実質的等価領域）の中に留まっていれば、いくら方向が確実（高PD）でも、**「実質的には意味がない（差はない）」**と判断できます。これにより、過剰な検定力による「意味のない有意差」をフィルタリングできます。
+
+
+
+### 3. 直感的な理解（定義の明確さ）
+
+* **P値（NHST）:** 「『もし帰無仮説が正しいとしたら』、今回のようなデータが得られる確率はどれくらいか？」という、条件付き確率の非常に回りくどい概念です。
+* **PD:** 「効果がプラス（またはマイナス）である確率は何％か？」という、私たちが本当に知りたい直接的な確率です。
+
+### まとめ
+
+| 特徴 | NHST (P値) | ベイズ流 (PD & ROPE) |
+| --- | --- | --- |
+| **帰無仮説の扱い** | 棄却するか、保留するかのみ。「差がない」ことの証明は不可（悪魔の証明）。 | 「実質的に差がない」ことを確率的に証明（受容）できる。 |
+| **有意差が出ない時** | 「データ不足」か「効果なし」か区別不能。 | ROPEを見ることで、「精度不足（不確実）」か「確実に効果なし」かを区別可能。 |
+| **サンプル数過多** | 微細な差でも「有意」になり、ミスリードしやすい。 | 効果が微細なら ROPE に含まれるため、「実質的な差なし」と正しく判断できる。 |
+| **解釈の直感性** | 誤解されやすい（P値を効果の確率と思いがち）。 | 直感的（PD = 効果が存在する確率）。 |
+
+**結論として：**
+論文の Results や Discussion において、「有意差が出なかった」ことを単に報告するのではなく、ROPE を用いて「この結果は、効果が科学的に無視できるレベルであることを示唆している（Accepting the Null）」と論じることができる点が、この手法の最大の強みです。
+
+--------------------------------------------------------------------------------
+
+## Model diagnostic plots
+
+```{r}
+data3 = data2 |> 
+  mutate(ecdf = map(fullout, \(x) {
+    pp_check(x, type = "ecdf_overlay", ndraws = 25)
+  })) 
+
+plots = data3|> pull(ecdf)
+plabels = data3 |> 
+  mutate(l = str_glue("({LETTERS[seq_along(PAR)]}) {PAR} &mu;mol photons m^-2^ s^-1^ {Temp}&deg;C")) |> pull(l)
+plabel = str_flatten_comma(plabels, last = ", and ")
+
+wrap_plots(plots) + plot_annotation(tag_levels = 'A')
+
+```
+
+Fig. A. The posterior predictive check using the empirical cumulative distribution funcion indicated a good model fit for all of the 
+analyzed data; `{r} plabel`.
+The model captures the structure of the data, since the observations ($y$) are contained within the distribution of the posterior predictions $y_{rep}$. 
+
+
+```{r}
+data3 = data3 |> 
+  mutate(statsd = map(fullout, \(x) {
+    pp_check(x, type = "stat", stat = "sd", ndraws = 1000)
+  })) 
+
+plots = data3|> pull(statsd)
+plabels = data3 |> 
+  mutate(l = str_glue("({LETTERS[seq_along(PAR)]}) {PAR} &mu;mol photons m^-2^ s^-1^ {Temp}&deg;C")) |> pull(l)
+plabel = str_flatten_comma(plabels, last = ", and ")
+wrap_plots(plots) + plot_annotation(tag_levels = 'A')
+```
+
+Fig. B. The posterior predictive check of the standard deviation indicated that the standard variation of the posterior predictions were modeled well for all of the 
+analyzed data; `{r} plabel`.
+The model captures the standard deviation of the data, since the observations ($T(y)$) are contained within the distribution of the posterior predictions $T(y_{rep})$. 
+
+```{r}
+data3 = data3 |> 
+  mutate(statmean = map(fullout, \(x) {
+    pp_check(x, type = "stat", stat = "mean", ndraws = 1000)
+  })) 
+
+plots = data3|> pull(statmean)
+plabels = data3 |> 
+  mutate(l = str_glue("({LETTERS[seq_along(PAR)]}) {PAR} &mu;mol photons m^-2^ s^-1^ {Temp}&deg;C")) |> pull(l)
+plabel = str_flatten_comma(plabels, last = ", and ")
+wrap_plots(plots) + plot_annotation(tag_levels = 'A')
+```
+
+Fig. C. The posterior predictive check of the mean indicated that the mean of the posterior predictions were modeled well for all of the 
+analyzed data; `{r} plabel`.
+The model captures the mean of the data, since the observations ($T(y)$) are contained within the distribution of the posterior predictions $T(y_{rep})$. 

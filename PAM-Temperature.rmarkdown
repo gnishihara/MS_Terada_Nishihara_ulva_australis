@@ -1,0 +1,332 @@
+---
+title: "2026 *Ulva australis* PAM -- Temperature Analysis"
+title-block-banner: true
+date: today
+date-format: "YYYY MMM MM"
+author: 
+  - name: Dai Sumiyoshi
+  - name: Kaiki Tajiri
+  - name: Masahiro Suzuki
+  - name: Gregory N. Nishihara
+  - name: Ryuta Terada
+execute: 
+  echo: false
+  message: false
+  warning: false
+---
+
+```{r}
+#| include: false
+library(tidyverse)
+library(ggpubr)
+library(ggtext)
+library(magick)
+library(patchwork)
+library(showtext)
+library(brms)
+library(tidybayes)
+library(gt)
+library(gnnlab)
+library(utils)
+library(readxl)
+```
+
+```{r}
+#| include: false
+font_add_google("Noto Sans", family = "ns")
+theme_pubr(10, "ns", border = TRUE) |> 
+  set_theme()
+theme_pubr() |> 
+  replace_theme(
+    axis.line.x = element_blank(),
+    axis.line.y = element_blank(),
+    axis.title.x = element_markdown(family = "ns", margin = margin(0.5, 0, 0.5, 0, "lines")),
+    axis.title.y = element_markdown(family = "ns", angle= 90, margin = margin(0, 0.5, 0, 0.5, "lines")),
+  )
+showtext_auto()
+folder = "~/Dropbox/MS_Terada_Greg/"
+folder = "./Data/"
+fnames = dir(folder, recursive = TRUE)
+```
+
+
+```{r}
+#| include: false
+ftext = "PAM_Temp"
+fname = str_c(folder, str_subset(fnames, ftext)) 
+esheets = excel_sheets(fname)
+data = tibble(fname, esheets) |> 
+  mutate(data = map2(fname, esheets, \(fname = fname, esheets = esheets) {
+    read_xlsx(fname, sheet = esheets[1]) |> select(Temp, PAR, matches("Y\\(II\\)"))
+  } )) |> 
+  mutate(Days = str_extract(esheets, "[0-9]+")) |> 
+  select(Days, data) |> 
+  unnest(data) |> 
+  pivot_longer(matches("^Y")) |> 
+  mutate(ID = as.numeric(str_extract(name, "[0-9]+")))
+
+```
+
+```{r}
+xlabel = "Temperature (&deg;C)"
+ylabel = "Effective quantum yield (&Delta;F/Fm&prime;)"
+xbreaks = unique(data$Temp)
+xbreaks = seq(min(xbreaks), max(xbreaks), by = 4)
+# 1. Create a label dataframe 
+# We take distinct categories and generate the "A: ..." label here
+labeldf = data |> expand(Days, x = min(Temp), y = 1) |> 
+  mutate(
+    l = str_glue("({LETTERS[seq_along(Days)]}) Incubation duration: {Days}-d ")
+  )
+
+p1 = 
+  ggplot(data) + 
+  geom_point(aes(x = Temp, y = value), 
+             position = position_jitter(width = 0.2), 
+             shape = 21,
+             fill = "black",
+             stroke = 0,
+             alpha = 0.8) +
+  geom_richtext(aes(x = x, y = y, label = l),
+                data = labeldf,
+    vjust = 1, hjust = 0,
+    color = "transparent",
+    fill = "transparent",
+    text.color = "black",
+    family = "ns", 
+    size = 3
+  ) +
+  scale_x_continuous(xlabel, breaks = xbreaks, limits = range(xbreaks)) +
+  scale_y_continuous(ylabel, breaks = seq(0, 1, by = 0.25), limits = c(0, 1)) +
+  facet_wrap(vars(Days), ncol = 2) +
+  theme(
+    strip.text = element_blank(),
+    strip.background = element_blank()
+  )
+
+pdfname = "PAM-Temperature-plot.pdf"
+save_plot(pdfname, plot = p1, width = 80 * 2, height = 80)
+```
+
+
+
+Fig. 1 The response of the effective quantum yield (&Delta; F/Fm&prime;) in the green alga, 
+*Ulva australis* from Nagashima Island, Kagoshima, Japan.
+The experiments were conducted at temperature treatments of 4 to 36 &deg;C 
+after 1, 3, 5, and 7 days of incubation at
+50 &mu;mol photons m^-2^ s^-1^ and a 12L12D photoperiod.
+The points are jittered horizontally for clarity (n = 10).
+
+```{r}
+image_read(str_replace(pdfname, "pdf", "png"))
+```
+
+# Analysis
+
+
+Table 1. The mean, standard deviation (Std. Dev.), and standard error (Std. Err.) of the effective quantum yield (&Delta;Fv/Fm&prime;).
+
+```{r}
+data |> 
+  group_by(Days, Temp) |> 
+  reframe(across(value, list(m = mean, sd = sd, se = se, n = length))) |> 
+  mutate(Days = str_glue("{Days}-d ")) |> 
+  gt() |> 
+  cols_label(
+    Days = "Incubation duration (Days)",
+    Temp = "Temperature (&deg;C)",
+    value_m = "Mean",
+    value_m = "Mean",
+    value_sd = "Std. Dev.",
+    value_se = "Std. Error",
+    value_n = "N"
+  ) |> 
+  fmt_number(columns = c(value_m, value_sd), decimals = 3) |> 
+  fmt_number(columns = value_se, decimals = 3) |> 
+  tab_style(
+    style = list(cell_fill(color = "grey90")),
+    locations = cells_body(rows = str_detect(Days, "3|7"))
+  ) |> 
+  tab_source_note(
+    source_note = md("12L12D, 50 PAR (&mu;mol photons m<sup>-2</sup> s<sup>-1</sup>)")
+  )
+```
+
+
+```{r}
+data = data |> mutate(Days = factor(Days), fTemp = factor(Temp))
+# Functions ####################################################################
+fad = function(h, x, xopt) {
+  gas_constant = 8.314 / 1000.0;
+  y = h * (x - xopt) / (x * gas_constant * xopt)
+  exp(y)
+}
+
+ptmodel = function(x, xopt, yopt, eta, ha) {
+  x = x + 273.15; 
+  xopt = xopt + 273.15
+  hd = ha * eta
+  fa = fad(ha, x, xopt)
+  fd = fad(hd, x, xopt)
+  (yopt * eta * fa) / (eta + fd - 1)
+}
+# Fit the brms model ###########################################################
+stan_ptfunction = 
+  "
+real ptmodel(real xopt, real yopt, real ha, real eta, real temperature) {
+  real x = temperature + 273.15;
+  real hd = ha * eta;
+  real gasConstant = 8.314 / 1000.0;
+  real fa = exp(ha * (x - xopt) / (x * gasConstant * xopt));
+  real fd = exp(hd * (x - xopt) / (x * gasConstant * xopt));
+  return yopt * eta * fa / (eta - 1 + fd);
+}
+"
+
+stanvars = stanvar(scode = stan_ptfunction, block = "functions")
+fullmodel = 
+  bf(value ~ ptmodel(KT, PM, HA, ET, Temp),
+     PM + HA + ET + KT ~ 1,
+     nl = TRUE) + 
+  xbeta(link = "identity")
+
+get_prior(fullmodel, data = data)
+# get_prior(nullmodel, data = data)
+
+priors = c(
+  prior(student_t(3, 40, 2.5),   class = b, nlpar = ET,  lb = 2),
+  prior(student_t(3, 10, 2.5),   class = b, nlpar = HA,  lb = 0),
+  prior(student_t(3, 300, 2.5),  class = b, nlpar = KT,  lb = 273),
+  prior(student_t(3, 0.5, 1),    class = b, nlpar = PM,  lb = 0),
+  prior(gamma(0.01, 0.01), class = kappa),
+  prior(gamma(0.01, 0.01), class = phi)
+)
+
+
+```
+
+```{r}
+# expose_functions(bnull, vectorize = TRUE)
+```
+
+```{r}
+cores = chains = 5
+seed = 2026
+warmup = 4000
+iterations = warmup + 10000
+file_refit = "never"
+control = list(adapt_delta = 0.95, max_treedepth = 15)
+filename = "pam-ptcurve-null-model"
+bout = brm(
+      fullmodel,
+      data = data,
+      stanvars = stanvars,
+      prior = priors,
+      chains = chains,
+      cores = cores,
+      seed = seed,
+      iter = iterations,
+      warmup = warmup,
+      refresh = 100,
+      file = filename,
+      file_refit = file_refit,
+      control = control,
+      save_pars = save_pars(all = TRUE)
+    )
+# data$Days |> unique()
+# filename = str_glue("pam-ptcurve-{as.character(5)}D-fullmodel")
+# 
+# bout = brm(
+#       fullmodel,
+#       data = filter(data, Days == 5),
+#       stanvars = stanvars,
+#       prior = priors,
+#       chains = chains,
+#       cores = cores,
+#       seed = seed,
+#       iter = iterations,
+#       warmup = warmup,
+#       refresh = 100,
+#       file = filename,
+#       file_refit = file_refit,
+#       control = control,
+#       save_pars = save_pars(all = TRUE)
+#     )
+# 
+# 
+# filter(data, Days == 3) |> 
+#   ggplot() + 
+#   geom_point(aes(x = Temp, y = value))
+
+```
+
+
+```{r}
+fitmodel = function(data, Days) {
+  stan_ptfunction = 
+    "
+    real ptmodel(real xopt, real yopt, real ha, real eta, real temperature) {
+      real x = temperature + 273.15;
+      real hd = ha * eta;
+      real gasConstant = 8.314 / 1000.0;
+      real fa = exp(ha * (x - xopt) / (x * gasConstant * xopt));
+      real fd = exp(hd * (x - xopt) / (x * gasConstant * xopt));
+      return yopt * eta * fa / (eta - 1 + fd);
+    }
+    "
+  
+  stanvars = stanvar(scode = stan_ptfunction, block = "functions")
+  fullmodel = 
+    bf(value ~ ptmodel(KT, PM, HA, ET, Temp),
+       PM + HA + ET + KT ~ 1,
+       kappa ~ (0+1|fTemp),
+       nl = TRUE) + 
+    xbeta(link = "identity")
+  
+  priors = c(
+    prior(student_t(3, 40, 2.5),   class = b, nlpar = ET,  lb = 2),
+    prior(student_t(3, 10, 2.5),   class = b, nlpar = HA,  lb = 0),
+    prior(student_t(3, 300, 2.5),  class = b, nlpar = KT,  lb = 273),
+    prior(student_t(3, 0.5, 1),    class = b, nlpar = PM,  lb = 0),
+    prior(student_t(3, 0, 2.5), class = sd, dpar = kappa),
+    prior(gamma(0.01, 0.01), class = phi)
+  )
+  cores = chains = 5
+  seed = 2026
+  warmup = 4000/4
+  iterations = warmup + 10000/4
+  file_refit = "never"
+  control = list(adapt_delta = 0.95, max_treedepth = 15)
+  filename = str_glue("pam-ptcurve-{as.character(Days)}D-fullmodel")
+  mout = brm(
+    fullmodel,
+    data = data,
+    stanvars = stanvars,
+    prior = priors,
+    chains = chains,
+    cores = cores,
+    seed = seed,
+    iter = iterations,
+    warmup = warmup,
+    refresh = 1000,
+    file = filename,
+    file_refit = file_refit,
+    control = control,
+    save_pars = save_pars(all = TRUE)
+  )
+  # mout = add_criterion(mout, criterion = c("loo", "waic"), seed = 2025, cores = cores)
+  return(mout)
+}
+
+data = data |> 
+  group_nest(Days) |>
+  mutate(nullout = list(bout, bout, bout, bout)) |> 
+  mutate(fullout = map2(data, Days, fitmodel))
+
+
+```
+
+
+
+--------------------------------------------------------------------------------
+
