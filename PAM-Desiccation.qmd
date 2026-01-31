@@ -205,127 +205,160 @@ cores = chains = 5
 seed = 2026
 warmup = 4000
 iterations = warmup + 10000
-file_refit = "never"
-control = list(adapt_delta = 0.995, max_treedepth = 15)
+file_refit = "always"
+control = list(adapt_delta = 0.995, max_treedepth = 20)
 filename_null = "pam-desiccation-null-model"
 filename_full = "pam-desiccation-full-model"
 
 nullmodel = bf(value ~ s(awc, k = 8, bs = "cr"), zi ~ s(awc, k = 8, bs = "cr")) + zero_inflated_beta()
-fullmodel = bf(value ~ s(awc, k = 8, bs = "cr") + s(awc, k = 8, bs = "cr", by = state) + state, zi ~ s(awc, k = 8, bs = "cr") + s(awc, k = 8, bs = "cr", by = state) + state) + zero_inflated_beta()
+fullmodel = bf(value ~ s(awc, k = 8, bs = "cr", by = state) + state, 
+               zi  ~ s(awc, k = 8, bs = "cr"),
+               phi ~ s(awc, k = 8, bs = "cc")) + zero_inflated_beta()
 # get_prior(nullmodel, data)
-# get_prior(fullmodel, data)
+get_prior(fullmodel, data)
 priors_null = c(
-  prior(student_t(3, 0, 2.5), class = Intercept),
-  prior(student_t(3, 0, 2.5), class = b),
-  prior(student_t(3, 0, 2.5), class = sds),
-  prior(student_t(3, 0, 2.5), dpar = zi, class = Intercept),
-  prior(student_t(3, 0, 2.5), dpar = zi, class = b),
-  prior(student_t(3, 0, 2.5), dpar = zi, class = sds),
-  prior(gamma(0.01, 0.01), class = phi)
+  prior(normal(0, 2), class = Intercept),
+  prior(normal(0, 2), class = b),
+  prior(normal(0, 2), class = sds),
+  prior(normal(0, 2), dpar = zi, class = Intercept),
+  prior(normal(0, 2), dpar = zi, class = b),
+  prior(normal(0, 2), dpar = zi, class = sds),
+  prior(exponential(4), class = phi)
 )
+
 priors_full = c(
-  prior(student_t(3, 0, 2.5), class = Intercept),
-  prior(student_t(3, 0, 2.5), class = b),
-  prior(student_t(3, 0, 2.5), class = sds),
-  prior(student_t(3, 0, 2.5), dpar = zi, class = Intercept),
-  prior(student_t(3, 0, 2.5), dpar = zi, class = b),
-  prior(student_t(3, 0, 2.5), dpar = zi, class = sds),
-  prior(gamma(0.01, 0.01), class = phi)
+  prior(normal(0, 2), class = Intercept),
+  prior(normal(0, 2), class = b),
+  prior(normal(0, 2), class = sds),
+  prior(logistic(0, 1), dpar = zi, class = Intercept),
+  prior(normal(0, 2), dpar = zi, class = b),
+  prior(normal(0, 2), dpar = zi, class = sds),
+  prior(normal(20, 2), dpar = phi, class = Intercept),
+  prior(normal(0, 2), dpar = phi, class = sds)
 )
 ```
+
+
+```{r}
+
+if(file.exists(str_c(filename_full, ".rds")))
+
+
+```
+
 
 
 ```{r}
 #| label: nullmodel
 
-plan(cluster, workers = "mimir")
-futurenull = future({
-  brm(
-    nullmodel,
-    data = data,
-    prior = priors_null,
-    chains = chains,
-    cores = cores,
-    seed = seed,
-    iter = iterations,
-    warmup = warmup,
-    refresh = 0,
-    file = filename_null,
-    file_refit = file_refit,
-    backend = "cmdstanr",
-    threads = threading(4),
-    control = control,
-    save_pars = save_pars(all = TRUE)
-  )
-})
-
-z = 0
-while(!resolved(futurenull)) {
-  z0 = lubridate::now()
-  message("Model is still sampling... ", z0)
-  Sys.sleep(10) # Check every 10 seconds
-  z = z + 10
+if(!file.exists(str_c(filename_null, ".rds"))) {
+  plan(cluster, workers = "mimir")
+  futurenull = future({
+    brm(
+      nullmodel,
+      data = data,
+      prior = priors_null,
+      chains = chains,
+      cores = cores,
+      seed = seed,
+      iter = iterations,
+      warmup = warmup,
+      refresh = 0,
+      file = filename_null,
+      file_refit = file_refit,
+      backend = "cmdstanr",
+      threads = threading(4),
+      control = control,
+      save_pars = save_pars(all = TRUE)
+    )
+  }, seed = seed)
+  
+  z = 0
+  sleeptime = 60 * 1
+  while(!resolved(futurenull)) {
+    z0 = lubridate::now()
+    message("Model is still sampling... ", z0)
+    Sys.sleep(sleeptime) # Check every 10 seconds
+    z = z + sleeptime
+  }
+  
+  message("Done! You can now run: fit <- value(futurenull)\n", "Total time is: ", z/60, " minutes.")
+  
+  bout_null = value(futurenull)
+  bout_null |> write_rds(str_c(filename_null, ".rds"))
+  plan(sequential);gc()
+} else {
+  bout_null = read_rds(str_c(filename_null, ".rds"))
 }
 
-message("Done! You can now run: fit <- value(futurenull)\n", "Total time is: ", z/60, " minutes.")
-plan(sequential)
 ```
-
-```{r}
-bout_null = value(futurenull)
-
-require(ssh)
-remote = str_c("/home/gnishihara/MS_Terada_Nishihara_ulva_australis_202601/", filename_null, ".rds") |> print()
-session = ssh_connect("mimir")
-scp_download(session, files = remote, to = "./")
-ssh_disconnect(session)
-```
-
 
 ```{r}
 #| label: fullmodel
 
-plan(cluster, workers = "mimir")
-futurefull = future({
-  brm(
-    fullmodel,
-    data = data,
-    prior = priors_full,
-    chains = chains,
-    cores = cores,
-    seed = seed,
-    iter = iterations,
-    warmup = warmup,
-    refresh = 0,
-    file = filename_full,
-    file_refit = file_refit,
-    backend = "cmdstanr",
-    threads = threading(4),
-    control = control,
-    save_pars = save_pars(all = TRUE)
-  )
-})
-
-z = 0
-while(!resolved(futurefull)) {
-  z0 = lubridate::now()
-  message("Model is still sampling... ", z0)
-  Sys.sleep(10) # Check every 10 seconds
-  z = z + 10
+if(!file.exists(str_c(filename_null, ".rds"))) {
+  plan(cluster, workers = "mimir")
+  futurefull = future({
+    brm(
+      fullmodel,
+      data = data,
+      prior = priors_full,
+      chains = chains,
+      cores = cores,
+      seed = seed,
+      iter = iterations,
+      warmup = warmup,
+      refresh = 0,
+      file = filename_full,
+      file_refit = file_refit,
+      backend = "cmdstanr",
+      threads = threading(4),
+      control = control,
+      save_pars = save_pars(all = TRUE)
+    )
+  }, seed = seed)
+  
+  z = 0
+  sleeptime = 60 * 15
+  while(!resolved(futurefull)) {
+    z0 = lubridate::now()
+    message("Model is still sampling... ", z0)
+    Sys.sleep(sleeptime) # Check every 10 seconds
+    z = z + sleeptime
+  }
+  
+  message("Done! You can now run: fit <- value(futurefull)\n", "Total time is: ", z/60, " minutes.")
+  bout_full = value(futurefull)
+  bout_full |> write_rds(str_c(filename_full, ".rds"))
+  plan(sequential); gc()
+  # future({Sys.info()[["nodename"]]}) |> value()
+} else {
+  bout_full = read_rds(str_c(filename_full, ".rds"))
 }
 
-message("Done! You can now run: fit <- value(futurefull)\n", "Total time is: ", z/60, " minutes.")
-plan(sequential)
 ```
+
+
 
 ```{r}
-bout_full = value(futurefull)
-
-require(ssh)
-remote = str_c("/home/gnishihara/MS_Terada_Nishihara_ulva_australis_202601/", filename_full, ".rds") |> print()
-session = ssh_connect("mimir")
-scp_download(session, files = remote, to = "./")
-ssh_disconnect(session)
+pp_check(bout_null)
 ```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 

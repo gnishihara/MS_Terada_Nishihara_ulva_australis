@@ -103,7 +103,7 @@ p1 = ggplot(data) +
   theme(
     strip.text = element_blank(),
     strip.background = element_blank()
-  )
+  );p1 
 
 pdfname = "PAM-Salinity-plot.pdf"
 save_plot(pdfname, plot = p1, width = 80 * 2, height = 80)
@@ -131,37 +131,29 @@ The points are jittered horizontally for clarity (n = 10).
 ```{r}
 cores = chains = 5
 seed = 2026
-warmup = 400
-iterations = warmup + 1000
+warmup = 2000
+iterations = warmup + 4000
 file_refit = "always"
-control = list(adapt_delta = 0.995, max_treedepth = 15)
+control = list(adapt_delta = 0.95, max_treedepth = 20)
 filename_null = "pam-salinity-null-model"
 filename_full = "pam-salinity-full-model"
+output_null = "pam-salinity-null"
+output_full = "pam-salinity-full"
+
+if(!dir.exists(output_full)) dir.create(output_full)
 
 fullmodel = bf(
-  value ~ t2(salinity, PSU, k = c(4, 10), bs = "cr"),
-  phi ~ s(PSU, k = 10, bs = "cr")
+  value ~ t2(days, PSU, k = c(4, 13), bs = "cr")
   ) +   Beta()
 
-# get_prior(nullmodel, data)
-# get_prior(fullmodel, data)
-priors_null = c(
-  prior(student_t(3, 0, 2.5), class = Intercept),
-  prior(student_t(3, 0, 2.5), class = b),
-  prior(student_t(3, 0, 2.5), class = sds),
-  prior(student_t(3, 0, 2.5), dpar = zi, class = Intercept),
-  prior(student_t(3, 0, 2.5), dpar = zi, class = b),
-  prior(student_t(3, 0, 2.5), dpar = zi, class = sds),
-  prior(gamma(0.01, 0.01), class = phi)
-)
+get_prior(fullmodel, data)
+data$PSU |> unique() |> length()
+
 priors_full = c(
-  prior(student_t(3, 0, 2.5), class = Intercept),
-  prior(student_t(3, 0, 2.5), class = b),
-  prior(student_t(3, 0, 2.5), class = sds),
-  prior(student_t(3, 0, 2.5), dpar = zi, class = Intercept),
-  prior(student_t(3, 0, 2.5), dpar = zi, class = b),
-  prior(student_t(3, 0, 2.5), dpar = zi, class = sds),
-  prior(gamma(0.01, 0.01), class = phi)
+  prior(normal(0, 2), class = Intercept),
+  prior(normal(0, 2), class = b),
+  prior(normal(0, 2), class = sds),
+  prior(exponential(4), class = phi)
 )
 ```
 
@@ -169,10 +161,8 @@ priors_full = c(
 ```{r}
 #| label: fullmodel
 
-plan(cluster, workers = "mimir")
-futurefull = future({
-  brm(
-    nullmodel,
+bout_full =  brm(
+    fullmodel,
     data = data,
     prior = priors_full,
     chains = chains,
@@ -186,32 +176,42 @@ futurefull = future({
     backend = "cmdstanr",
     threads = threading(4),
     control = control,
+    output_dir = output_full,
     save_pars = save_pars(all = TRUE)
   )
-}, seed = 2026)
 
-z = 0
-sleepsecs = 50
-while(!resolved(futurefull)) {
-  z0 = lubridate::now()
-  message("Model is still sampling... ", z0)
-  Sys.sleep(sleepsecs) # Check every 10 seconds
-  z = z + sleepsecs
-}
+bout_full
+```
 
-message("Done! You can now run: fit <- value(futurefull)\n", "Total time is: ", z/60, " minutes.")
-plan(sequential)
+
+```{r}
+draws = data |> 
+  expand(Days, PSU = seq(min(PSU), max(PSU), length = 21)) |> 
+  mutate(days = as.numeric(Days)) |> 
+  add_epred_draws(bout_full, ndraws = 100, value = ".epred")
+
+draws |> group_by(.draw, PSU) |> 
+  filter(.epred < 0.5) |> 
+  reframe(days_to_fail = min(days)) |> 
+  group_by(PSU) |> 
+  reframe(across(days_to_fail, list(m = mean, med = median)))
 ```
 
 ```{r}
-bout_full = value(futurefull)
-
-require(ssh)
-remote = str_c("/home/gnishihara/MS_Terada_Nishihara_ulva_australis_202601/", filename_full, ".rds") |> print()
-session = ssh_connect("mimir")
-scp_download(session, files = remote, to = "./")
-ssh_disconnect(session)
-
-bout_full
-
+draws |> 
+  group_by(Days, PSU) |> 
+  mean_hdci(.epred) |> 
+  ggplot() +
+  geom_ribbon(aes(x = PSU, ymin = .lower, ymax = .upper, fill = Days), alpha = 0.5) +
+  geom_line(aes(x = PSU, y = .epred, color = Days)) +
+  stat_summary(aes(x = PSU, y = value, color = Days), 
+               data = data) +
+  facet_wrap(vars(Days))
 ```
+
+
+```{r}
+# This will generate a 2D heat map (contour plot)
+# plot(conditional_effects(bout_full, effects = "PSU:days", surface = TRUE, resolution = 50), stype = "raster")
+```
+

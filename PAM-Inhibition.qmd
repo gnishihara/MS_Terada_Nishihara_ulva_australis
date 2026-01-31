@@ -228,58 +228,15 @@ data |>
 data2 = data |> 
   mutate(across(c(Hours, Temp, PAR), as_factor)) |> 
   filter(Hours %in% c(0, 6, 18))
-
-fullmodel = bf(value ~ 0 + Hours) + xbeta()
-nullmodel = bf(value ~ 1) + xbeta()
-# get_prior(fullmodel, data = data)
-# get_prior(nullmodel, data = data)
-
-null_priors = c(
-  prior(student_t(3, 0, 2.5), class = Intercept),
-  prior(gamma(0.01, 0.01), clas = kappa, lb = 0),
-  prior(gamma(0.01, 0.01), clas = phi, lb = 0),
-  NULL
-)
-
-full_priors = c(
-  prior(student_t(3, 0, 2.5), class = b),
-  prior(gamma(0.01, 0.01), clas = kappa, lb = 0),
-  prior(gamma(0.01, 0.01), clas = phi, lb = 0)
-)
-
-cores = chains = 4
-seed = 2026
-warmup = 1000
-iterations = warmup + 1000
-file_refit = "never"
-control = list(adapt_delta = 0.95, max_treedepth = 15)
-
-nullout = brm(
-  nullmodel,
-  data = data2,
-  prior = null_priors,
-  chains = chains,
-  cores = cores,
-  seed = seed,
-  iter = iterations,
-  warmup = warmup,
-  refresh = 100,
-  backend = "cmdstanr",
-  threads = threading(4),
-  file = "pam-inhibition-null-model",
-  file_refit = file_refit,
-  control = control
-)
 ```
 
 ```{r}
-
 cores = chains = 5
 seed = 2026
 warmup = 4000
 iterations = warmup + 10000
-file_refit = "never"
-control = list(adapt_delta = 0.95, max_treedepth = 15)
+file_refit = "always"
+control = list(adapt_delta = 0.95, max_treedepth = 20)
 
 data2 = data2 |> 
   group_nest(PAR, Temp) |> 
@@ -290,12 +247,12 @@ data2 = data2 |>
       Temp == 16 ~ "16",
       TRUE ~ "28"
     )
-    nullmodel = bf(value ~ 1) + xbeta()
+    
+    nullmodel = bf(value ~ 1) + zero_inflated_beta()
     null_priors = c(
-      prior(student_t(3, 0, 2.5), class = Intercept),
-      prior(gamma(0.01, 0.01), clas = kappa, lb = 0),
-      prior(gamma(0.01, 0.01), clas = phi, lb = 0),
-      NULL
+      prior(normal(0, 2), class = Intercept),
+      prior(exponential(4), class = phi),
+      prior(beta(1,1), class = zi)
     )
     # cores = chains = 4
     # seed = 2026
@@ -329,13 +286,12 @@ data2 = data2 |>
       Temp == 16 ~ "16",
       TRUE ~ "28"
     )
-    fullmodel = bf(value ~ 0 + Hours) + xbeta()
+    fullmodel = bf(value ~ 0 + Hours) + zero_inflated_beta()
     full_priors = c(
-      prior(student_t(3, 0, 2.5), class = b),
+      prior(normal(0, 2), class = b),
       # prior(student_t(3, 0, 2.5), class = sd, lb = 0),
-      prior(gamma(0.01, 0.01), clas = kappa, lb = 0),
-      prior(gamma(0.01, 0.01), clas = phi, lb = 0),
-      NULL
+      prior(exponential(4), class = phi),
+      prior(beta(1,1), class = zi)
     )
     
     # cores = chains = 4
