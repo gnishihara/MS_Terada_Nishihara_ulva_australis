@@ -186,3 +186,399 @@ processing file: PAM-Desiccation.qmd
   
 Output created: PAM-Desiccation.html
 
+[31m
+
+processing file: PAM-Desiccation.qmd
+[39m1/25                   
+2/25 [unnamed-chunk-1] 
+3/25                   
+4/25 [unnamed-chunk-2] 
+5/25                   
+6/25 [unnamed-chunk-3] 
+7/25                   
+8/25 [unnamed-chunk-4] 
+9/25                   
+10/25 [unnamed-chunk-5] 
+11/25                   
+12/25 [unnamed-chunk-6] 
+13/25                   
+14/25 [unnamed-chunk-7] 
+15/25                   
+16/25 [unnamed-chunk-8] 
+17/25                   
+18/25 [nullmodel]       
+[31mDuring startup - Warning message:
+Setting LC_TIME failed, using "C" 
+[39m[31m
+
+processing file: PAM-Desiccation.qmd
+[39m1/25                   
+2/25 [unnamed-chunk-1] 
+3/25                   
+4/25 [unnamed-chunk-2] 
+5/25                   
+6/25 [unnamed-chunk-3] 
+7/25                   
+8/25 [unnamed-chunk-4] 
+9/25                   
+10/25 [unnamed-chunk-5] 
+11/25                   
+12/25 [unnamed-chunk-6] 
+13/25                   
+14/25 [unnamed-chunk-7] 
+15/25                   
+16/25 [unnamed-chunk-8] 
+17/25                   
+18/25 [nullmodel]       
+[31mDuring startup - Warning message:
+Setting LC_TIME failed, using "C" 
+[39m[31m
+
+processing file: PAM-Desiccation.qmd
+[39m1/25                   
+2/25 [unnamed-chunk-1] 
+3/25                   
+4/25 [unnamed-chunk-2] 
+5/25                   
+6/25 [unnamed-chunk-3] 
+7/25                   
+8/25 [unnamed-chunk-4] 
+9/25                   
+10/25 [unnamed-chunk-5] 
+11/25                   
+12/25 [unnamed-chunk-6] 
+13/25                   
+14/25 [unnamed-chunk-7] 
+15/25                   
+16/25 [unnamed-chunk-8] 
+17/25                   
+18/25 [nullmodel]       
+[31mDuring startup - Warning message:
+Setting LC_TIME failed, using "C" 
+[39m[31m
+
+processing file: PAM-Desiccation.qmd
+[39m1/25                   
+2/25 [unnamed-chunk-1] 
+3/25                   
+4/25 [unnamed-chunk-2] 
+5/25                   
+6/25 [unnamed-chunk-3] 
+7/25                   
+8/25 [unnamed-chunk-4] 
+9/25                   
+10/25 [unnamed-chunk-5] 
+11/25                   
+12/25 [unnamed-chunk-6] 
+13/25                   
+14/25 [unnamed-chunk-7] 
+15/25                   
+16/25 [unnamed-chunk-8] 
+[31mError:
+! object 'output_full' not found
+Backtrace:
+    ▆
+ 1. └─base::dir.exists(output_full)
+[39m[31m
+Quitting from PAM-Desiccation.qmd:203-238 [unnamed-chunk-8]
+[39m[31mExecution halted
+[39m[33mWARN: Should not have arrived here:[39m
+[91mERROR: [non-error-thrown] undefined
+
+Stack trace:
+    at _Command.handleError (file:///opt/quarto/bin/quarto.js:10032:117)
+    at _Command.parseCommand (file:///opt/quarto/bin/quarto.js:9719:12)
+    at eventLoopTick (ext:core/01_core.js:178:7)
+    at async quarto (file:///opt/quarto/bin/quarto.js:175522:5)
+    at async file:///opt/quarto/bin/quarto.js:175550:5
+    at async file:///opt/quarto/bin/quarto.js:175405:14
+    at async mainRunner (file:///opt/quarto/bin/quarto.js:175407:5)
+    at async file:///opt/quarto/bin/quarto.js:175543:3[39m
+[31m
+
+processing file: PAM-Desiccation.qmd
+[39m1/25                   
+2/25 [unnamed-chunk-1] 
+3/25                   
+4/25 [unnamed-chunk-2] 
+5/25                   
+6/25 [unnamed-chunk-3] 
+7/25                   
+8/25 [unnamed-chunk-4] 
+9/25                   
+10/25 [unnamed-chunk-5] 
+11/25                   
+12/25 [unnamed-chunk-6] 
+13/25                   
+14/25 [unnamed-chunk-7] 
+15/25                   
+16/25 [unnamed-chunk-8] 
+17/25                   
+18/25 [nullmodel]       
+[31mDuring startup - Warning message:
+Setting LC_TIME failed, using "C" 
+[39m19/25                   
+20/25 [unnamed-chunk-9] 
+21/25                   
+22/25 [fullmodel]       
+23/25                   
+24/25 [unnamed-chunk-10]
+[31mError:
+! Future (<unnamed-2>) of class ClusterFuture was canceled, while running on 'mimir' (pid 390519)
+Backtrace:
+    ▆
+ 1. ├─future::value(futurefull)
+ 2. └─future:::value.Future(futurefull)
+ 3.   ├─future::result(future)
+ 4.   └─future:::result.ClusterFuture(future)
+[39m[31m
+Quitting from PAM-Desiccation.qmd:318-322 [unnamed-chunk-10]
+[39m[31mExecution halted
+[39mError occurred during cleanup: TypeError: Child process has already terminated
+[31m
+
+processing file: PAM-Desiccation.qmd
+[39m1/25                   
+2/25 [unnamed-chunk-1] 
+3/25                   
+4/25 [unnamed-chunk-2] 
+5/25                   
+6/25 [unnamed-chunk-3] 
+7/25                   
+8/25 [unnamed-chunk-4] 
+9/25                   
+10/25 [unnamed-chunk-5] 
+11/25                   
+12/25 [unnamed-chunk-6] 
+13/25                   
+14/25 [unnamed-chunk-7] 
+15/25                   
+16/25 [unnamed-chunk-8] 
+[31mDuring startup - Warning message:
+Setting LC_TIME failed, using "C" 
+[39m17/25                   
+18/25 [nullmodel]       
+19/25                   
+20/25 [unnamed-chunk-9] 
+21/25                   
+22/25 [fullmodel]       
+[31mError:
+! object 'futurenull' not found
+Backtrace:
+    ▆
+ 1. └─future::resolved(futurenull)
+[39m[31m
+Quitting from PAM-Desiccation.qmd:284-319 [fullmodel]
+[39m[31mExecution halted
+[39m[31m
+
+processing file: PAM-Desiccation.qmd
+[39m1/25                   
+2/25 [unnamed-chunk-1] 
+3/25                   
+4/25 [unnamed-chunk-2] 
+5/25                   
+6/25 [unnamed-chunk-3] 
+7/25                   
+8/25 [unnamed-chunk-4] 
+9/25                   
+10/25 [unnamed-chunk-5] 
+11/25                   
+12/25 [unnamed-chunk-6] 
+13/25                   
+14/25 [unnamed-chunk-7] 
+15/25                   
+16/25 [unnamed-chunk-8] 
+[31mDuring startup - Warning message:
+Setting LC_TIME failed, using "C" 
+[39m17/25                   
+18/25 [nullmodel]       
+19/25                   
+20/25 [unnamed-chunk-9] 
+21/25                   
+22/25 [fullmodel]       
+[33mWARN: Should not have arrived here:[39m
+[91mERROR: [non-error-thrown] undefined
+
+Stack trace:
+    at _Command.handleError (file:///opt/quarto/bin/quarto.js:10032:117)
+    at _Command.parseCommand (file:///opt/quarto/bin/quarto.js:9719:12)
+    at eventLoopTick (ext:core/01_core.js:178:7)
+    at async quarto (file:///opt/quarto/bin/quarto.js:175522:5)
+    at async file:///opt/quarto/bin/quarto.js:175550:5
+    at async file:///opt/quarto/bin/quarto.js:175405:14
+    at async mainRunner (file:///opt/quarto/bin/quarto.js:175407:5)
+    at async file:///opt/quarto/bin/quarto.js:175543:3[39m
+[31m
+
+processing file: PAM-Desiccation.qmd
+[39m1/25                   
+2/25 [unnamed-chunk-1] 
+3/25                   
+4/25 [unnamed-chunk-2] 
+5/25                   
+6/25 [unnamed-chunk-3] 
+7/25                   
+8/25 [unnamed-chunk-4] 
+9/25                   
+10/25 [unnamed-chunk-5] 
+11/25                   
+12/25 [unnamed-chunk-6] 
+13/25                   
+14/25 [unnamed-chunk-7] 
+15/25                   
+16/25 [unnamed-chunk-8] 
+[31mDuring startup - Warning message:
+Setting LC_TIME failed, using "C" 
+[39m17/25                   
+18/25 [nullmodel]       
+19/25                   
+20/25 [unnamed-chunk-9] 
+21/25                   
+22/25 [fullmodel]       
+23/25                   
+24/25 [unnamed-chunk-10]
+[31mError:
+! Fitting failed. Unable to retrieve the metadata.
+Backtrace:
+    ▆
+ 1. ├─future::value(futurefull)
+ 2. └─future:::value.Future(futurefull)
+ 3.   └─future:::signalConditions(...)
+[39m[31m
+Quitting from PAM-Desiccation.qmd:321-325 [unnamed-chunk-10]
+[39m[31mExecution halted
+[39m[33mWARN: Should not have arrived here:[39m
+[91mERROR: [non-error-thrown] undefined
+
+Stack trace:
+    at _Command.handleError (file:///opt/quarto/bin/quarto.js:10032:117)
+    at _Command.parseCommand (file:///opt/quarto/bin/quarto.js:9719:12)
+    at eventLoopTick (ext:core/01_core.js:178:7)
+    at async quarto (file:///opt/quarto/bin/quarto.js:175522:5)
+    at async file:///opt/quarto/bin/quarto.js:175550:5
+    at async file:///opt/quarto/bin/quarto.js:175405:14
+    at async mainRunner (file:///opt/quarto/bin/quarto.js:175407:5)
+    at async file:///opt/quarto/bin/quarto.js:175543:3[39m
+[31m
+
+processing file: PAM-Desiccation.qmd
+[39m1/25                  
+2/25 [unnamed-chunk-1]
+3/25                  
+4/25 [unnamed-chunk-2]
+5/25                  
+6/25 [unnamed-chunk-3]
+7/25                  
+8/25 [unnamed-chunk-4]
+9/25                  
+10/25 [unnamed-chunk-5]
+11/25                  
+12/25 [unnamed-chunk-6]
+13/25                  
+14/25 [unnamed-chunk-7]
+15/25                  
+16/25 [unnamed-chunk-8]
+[31mDuring startup - Warning message:
+Setting LC_TIME failed, using "C" 
+[39m17/25                  
+18/25 [nullmodel]      
+19/25                  
+20/25 [unnamed-chunk-9]
+21/25                  
+22/25 [fullmodel]      
+23/25                  
+24/25 [writefull]      
+25/25                  
+[31moutput file: PAM-Desiccation.knit.md
+
+[39m[1mpandoc [22m
+  to: html
+  output-file: PAM-Desiccation.html
+  standalone: true
+  section-divs: true
+  html-math-method: mathjax
+  wrap: none
+  default-image-extension: png
+  variables: {}
+  
+[1mmetadata[22m
+  document-css: false
+  link-citations: true
+  lang: en
+  title: 2026 *Ulva australis* Dessiccation analysis
+  title-block-banner: true
+  date: today
+  date-format: YYYY MMM MM
+  author:
+    - name: Dai Sumiyoshi
+    - name: Kaiki Tajiri
+    - name: Masahiro Suzuki
+    - name: Gregory N. Nishihara
+    - name: Ryuta Terada
+  
+Output created: PAM-Desiccation.html
+
+[31m
+
+processing file: PAM-Desiccation.qmd
+[39m1/29                   
+2/29 [unnamed-chunk-1] 
+3/29                   
+4/29 [unnamed-chunk-2] 
+5/29                   
+6/29 [unnamed-chunk-3] 
+7/29                   
+8/29 [unnamed-chunk-4] 
+9/29                   
+10/29 [unnamed-chunk-5] 
+11/29                   
+12/29 [unnamed-chunk-6] 
+13/29                   
+14/29 [unnamed-chunk-7] 
+15/29                   
+16/29 [unnamed-chunk-8] 
+17/29                   
+18/29 [unnamed-chunk-9] 
+19/29                   
+20/29 [fullmodel]       
+[31mDuring startup - Warning message:
+Setting LC_TIME failed, using "C" 
+[39m21/29                   
+22/29 [unnamed-chunk-10]
+23/29                   
+24/29 [unnamed-chunk-11]
+25/29                   
+26/29 [unnamed-chunk-12]
+27/29                   
+28/29 [unnamed-chunk-13]
+29/29                   
+[31moutput file: PAM-Desiccation.knit.md
+
+[39m[1mpandoc [22m
+  to: html
+  output-file: PAM-Desiccation.html
+  standalone: true
+  section-divs: true
+  html-math-method: mathjax
+  wrap: none
+  default-image-extension: png
+  variables: {}
+  
+[1mmetadata[22m
+  document-css: false
+  link-citations: true
+  lang: en
+  title: 2026 *Ulva australis* Dessiccation analysis
+  title-block-banner: true
+  date: today
+  date-format: YYYY MMM MM
+  author:
+    - name: Dai Sumiyoshi
+    - name: Kaiki Tajiri
+    - name: Masahiro Suzuki
+    - name: Gregory N. Nishihara
+    - name: Ryuta Terada
+  
+Output created: PAM-Desiccation.html
+

@@ -13,6 +13,7 @@ execute:
   echo: false
   message: false
   warning: false
+  cache: true
 ---
 
 ```{r}
@@ -50,6 +51,10 @@ showtext_auto()
 folder = "~/Dropbox/MS_Terada_Greg/"
 folder = "./Data/"
 fnames = dir(folder, recursive = TRUE)
+
+svscaler = function(x, n) {
+  (x * (n - 1) + 0.5) / n
+}
 ```
 
 
@@ -66,11 +71,11 @@ data2 = data2 |> filter(str_detect(Status, "Desicc"))
 data3 = read_xlsx(fname, range = "V1:AA180") |> drop_na()
 data23 = 
   bind_cols(data2, data3) |> 
-   select(minutes = Min, N = `#`, period = `...4`, 
-          fw0 = matches("Initial"),
-          fw1 = matches("Fresh W"),
-          foil = matches("Foil"),
-          total = matches("Sample")) |> 
+  select(minutes = Min, N = `#`, period = `...4`, 
+         fw0 = matches("Initial"),
+         fw1 = matches("Fresh W"),
+         foil = matches("Foil"),
+         total = matches("Sample")) |> 
   mutate(dw = total - foil) |> 
   mutate(awc = (fw1 - dw) / (fw0 - dw) * 100) |> 
   mutate(period = str_extract(period, "[0-9]+(?=m)"))
@@ -78,8 +83,27 @@ data = full_join(data, data23, by = join_by(minutes, N, period))
 
 odata = data
 data = odata |> filter(!str_detect(state, "Init")) |> 
-  mutate(state = factor(state, levels = c("Desiccation", "30-min rehydration", "1-d rehydration")))
+  mutate(state = factor(state, levels = c("Desiccation", "30-min rehydration", "1-d rehydration"))) |>
+  mutate(nstate = as.numeric(state)) |> 
+  rename(individual = N,
+         location = ID) |> 
+  select(state, nstate, individual, location, minutes, value, awc) |> 
+  group_by(state) |> 
+  mutate(n = length(awc)) |> 
+  mutate(sawc = svscaler(awc/100, n),
+         svalue = svscaler(value, n)) |> 
+  ungroup() 
+
+data2 = 
+  data |> 
+  group_by(state, nstate, individual, minutes) |> 
+  reframe(
+    value_sd = sd(value),
+    value_m = mean(value),
+    awc = first(awc),
+    sawc = first(sawc)) 
 ```
+
 
 ```{r}
 xlabel = "Time of exposure (min)"
@@ -93,21 +117,20 @@ labeldf = data |> expand(state, x = min(minutes), y = 1) |>
     l = str_glue("({LETTERS[seq_along(state)]}) {state}")
   )
 
-p1 = ggplot(data) + 
-  geom_point(aes(x = minutes, y = value), 
-             position = position_jitter(width = 0.2), 
+p1 = ggplot(data2) + 
+  geom_point(aes(x = minutes, y = value_m), 
              shape = 21,
              fill = "black",
              stroke = 0,
              alpha = 0.8) +
   geom_richtext(aes(x = x, y = y, label = l),
                 data = labeldf,
-    vjust = 1, hjust = 0,
-    color = "transparent",
-    fill = "transparent",
-    text.color = "black",
-    family = "ns",
-    size = 3
+                vjust = 1, hjust = 0,
+                color = "transparent",
+                fill = "transparent",
+                text.color = "black",
+                family = "ns",
+                size = 3
   ) +
   scale_x_continuous(xlabel, breaks = xbreaks, limits = range(xbreaks)) +
   scale_y_continuous(ylabel, breaks = seq(0, 1, by = 0.25), limits = c(0, 1)) +
@@ -115,7 +138,7 @@ p1 = ggplot(data) +
   theme(
     strip.text = element_blank(),
     strip.background = element_blank()
-  );p1
+  )
 
 pdfname = "PAM-Desiccation-minutes-plot.pdf"
 save_plot(pdfname, plot = p1, width = 80, height = 80*1.5)
@@ -153,21 +176,20 @@ labeldf = data |> expand(state, x = 0, y = 1) |>
     l = str_glue("({LETTERS[seq_along(state)]}) {state}")
   )
 
-p1 = ggplot(data) + 
-  geom_point(aes(x = awc, y = value), 
-             position = position_jitter(width = 0.2), 
+p1 = ggplot(data2) + 
+  geom_point(aes(x = awc, y = value_m),
              shape = 21,
              fill = "black",
              stroke = 0,
              alpha = 0.8) +
   geom_richtext(aes(x = x, y = y, label = l),
                 data = labeldf,
-    vjust = 1, hjust = 0,
-    color = "transparent",
-    fill = "transparent",
-    text.color = "black",
-    family = "ns",
-    size = 3
+                vjust = 1, hjust = 0,
+                color = "transparent",
+                fill = "transparent",
+                text.color = "black",
+                family = "ns",
+                size = 3
   ) +
   scale_x_continuous(xlabel, breaks = xbreaks, limits = range(xbreaks)) +
   scale_y_continuous(ylabel, breaks = seq(0, 1, by = 0.25), limits = c(0, 1)) +
@@ -175,7 +197,7 @@ p1 = ggplot(data) +
   theme(
     strip.text = element_blank(),
     strip.background = element_blank()
-  );p1
+  )
 
 pdfname = "PAM-Desiccation-RWC-plot.pdf"
 save_plot(pdfname, plot = p1, width = 80, height = 80*1.5)
@@ -199,109 +221,136 @@ The points are jittered horizontally for clarity (n = 50).
 
 :::
 
+Smithson, M., & Verkuilen, J. (2006). A better lemon squeezer? Maximum-likelihood regression with beta-distributed dependent variables. Psychological Methods, 11(1), 54–71. https://doi.org/10.1037/1082-989X.11.1.54
+
+```{r}
+data2 = 
+  data |> 
+  group_by(state, nstate, individual, minutes) |> 
+  reframe(
+    value_sd = sd(value),
+    value_m = mean(value),
+    awc = first(awc)) |> 
+  select(state, nstate, minutes, awc, individual, value_m, value_sd) |>
+  mutate(
+    nstate = factor(nstate, labels = c("D", "Thirty", "Day"), ordered = TRUE),
+    individual = factor(individual)) 
+
+data2 = 
+  data2 |> 
+  mutate(outlier = ifelse(between(awc, 20, 30) & str_detect(individual, "2"), TRUE, FALSE)) 
+
+data2 = data2 |> 
+  group_nest(state, individual) |> 
+  mutate(id = 1:n()) |> 
+  unnest(data)
+
+data2 = data2 |> 
+  mutate(y = (value_m * (n() - 1) + 0.5)/n(),
+         x = awc / 100)
+
+data2 = data2 |> filter(!outlier)
+
+
+data2 |> 
+  ggplot() +
+  geom_point(aes(x = x, y = y,color = individual)) + 
+  facet_grid(vars(nstate), vars(individual))
+
+```
+
 
 ```{r}
 cores = chains = 5
 seed = 2026
 warmup = 4000
 iterations = warmup + 10000
-file_refit = "always"
+file_refit = "never"
 control = list(adapt_delta = 0.995, max_treedepth = 20)
-filename_null = "pam-desiccation-null-model"
 filename_full = "pam-desiccation-full-model"
 
-nullmodel = bf(value ~ s(awc, k = 8, bs = "cr"), zi ~ s(awc, k = 8, bs = "cr")) + zero_inflated_beta()
-fullmodel = bf(value ~ s(awc, k = 8, bs = "cr", by = state) + state, 
-               zi  ~ s(awc, k = 8, bs = "cr"),
-               phi ~ s(awc, k = 8, bs = "cc")) + zero_inflated_beta()
-# get_prior(nullmodel, data)
-get_prior(fullmodel, data)
-priors_null = c(
-  prior(normal(0, 2), class = Intercept),
-  prior(normal(0, 2), class = b),
-  prior(normal(0, 2), class = sds),
-  prior(normal(0, 2), dpar = zi, class = Intercept),
-  prior(normal(0, 2), dpar = zi, class = b),
-  prior(normal(0, 2), dpar = zi, class = sds),
-  prior(exponential(4), class = phi)
+file.remove(str_c(filename_full, ".rds"))
+
+library(mgcv)
+library(gratia)
+
+gam01 = gam(
+  y ~ s(x, bs = "ps") + s(x, by = nstate, bs = "ps", m = 1) + s(id, bs = "re"),
+  data = data2, family = betar(link = "logit")
 )
+
+draw(gam01)
+appraise(gam01)
+```
+
+
+```{r}
+fullmodel = bf(
+  y ~ nstate + s(x, bs = "ps") + s(x, by = nstate, bs = "ps", m = 1) + (1|individual)
+  ) + beta()
+
 
 priors_full = c(
-  prior(normal(0, 2), class = Intercept),
-  prior(normal(0, 2), class = b),
-  prior(normal(0, 2), class = sds),
-  prior(logistic(0, 1), dpar = zi, class = Intercept),
-  prior(normal(0, 2), dpar = zi, class = b),
-  prior(normal(0, 2), dpar = zi, class = sds),
-  prior(normal(20, 2), dpar = phi, class = Intercept),
-  prior(normal(0, 2), dpar = phi, class = sds)
+  prior(normal(0, 1.5), class = Intercept),
+  prior(normal(0, 1.5), class = b),
+  prior(exponential(2), class = sd),
+  prior(exponential(2), class = sds),
+  # prior(normal(0, 1.5), dpar = zi, class = Intercept),
+  # prior(normal(0, 1.5), dpar = zi, class = b),
+  prior(gamma(0.01, 0.01), class = phi)
 )
+# 
+# bout_full =
+#   brm(
+#     fullmodel,
+#     data = data2,
+#     prior = priors_full,
+#     chains = 5,
+#     cores = 5,
+#     seed = seed,
+#     iter = iterations,
+#     warmup = warmup,
+#     refresh = 20,
+#     file = filename_full,
+#     file_refit = file_refit,
+#     backend = "cmdstanr",
+#     control = list(adapt_delta = 0.95, max_treedepth = 20),
+#     save_pars = save_pars(all = TRUE)
+#   )
+# 
+# 
+# p1 = pp_check(bout_full, ndraws = 50, type = "dens_overlay_grouped", group = "state")
+# p2 = pp_check(bout_full, ndraws = 500, type = "stat_grouped", stat = "median", group = "state")
+# p3 = pp_check(bout_full, ndraws = 500, type = "stat_grouped", stat = "mad", group= "state")
+# p4 = pp_check(bout_full, ndraws = 500, type = "stat_grouped", stat = "mean", group= "state")
+# p5 = pp_check(bout_full, ndraws = 500, type = "stat_grouped", stat = "sd", group= "state")
+# 
+# p1 / p2 / p3 /p4 /p5
 ```
 
-
-```{r}
-
-if(file.exists(str_c(filename_full, ".rds")))
-
-
-```
-
-
-
-```{r}
-#| label: nullmodel
-
-if(!file.exists(str_c(filename_null, ".rds"))) {
-  plan(cluster, workers = "mimir")
-  futurenull = future({
-    brm(
-      nullmodel,
-      data = data,
-      prior = priors_null,
-      chains = chains,
-      cores = cores,
-      seed = seed,
-      iter = iterations,
-      warmup = warmup,
-      refresh = 0,
-      file = filename_null,
-      file_refit = file_refit,
-      backend = "cmdstanr",
-      threads = threading(4),
-      control = control,
-      save_pars = save_pars(all = TRUE)
-    )
-  }, seed = seed)
-  
-  z = 0
-  sleeptime = 60 * 1
-  while(!resolved(futurenull)) {
-    z0 = lubridate::now()
-    message("Model is still sampling... ", z0)
-    Sys.sleep(sleeptime) # Check every 10 seconds
-    z = z + sleeptime
-  }
-  
-  message("Done! You can now run: fit <- value(futurenull)\n", "Total time is: ", z/60, " minutes.")
-  
-  bout_null = value(futurenull)
-  bout_null |> write_rds(str_c(filename_null, ".rds"))
-  plan(sequential);gc()
-} else {
-  bout_null = read_rds(str_c(filename_null, ".rds"))
-}
-
-```
 
 ```{r}
 #| label: fullmodel
 
-if(!file.exists(str_c(filename_null, ".rds"))) {
+
+cores = chains = 5
+seed = 2026
+warmup = 4000
+iterations = warmup + 10000
+file_refit = "never"
+control = list(adapt_delta = 0.995, max_treedepth = 20)
+filename_full = "pam-desiccation-full-model"
+
+
+file.remove(str_c(filename_full, ".rds"))
+file.exists(str_c(filename_full, ".rds"))
+
+if(!file.exists(str_c(filename_full, ".rds"))) {
   plan(cluster, workers = "mimir")
   futurefull = future({
     brm(
       fullmodel,
-      data = data,
+      data = data2,
       prior = priors_full,
       chains = chains,
       cores = cores,
@@ -309,17 +358,14 @@ if(!file.exists(str_c(filename_null, ".rds"))) {
       iter = iterations,
       warmup = warmup,
       refresh = 0,
-      file = filename_full,
-      file_refit = file_refit,
       backend = "cmdstanr",
-      threads = threading(4),
       control = control,
       save_pars = save_pars(all = TRUE)
     )
   }, seed = seed)
   
   z = 0
-  sleeptime = 60 * 15
+  sleeptime = 5
   while(!resolved(futurefull)) {
     z0 = lubridate::now()
     message("Model is still sampling... ", z0)
@@ -335,14 +381,159 @@ if(!file.exists(str_c(filename_null, ".rds"))) {
 } else {
   bout_full = read_rds(str_c(filename_full, ".rds"))
 }
-
 ```
+
+
+# Posterior predictive checks
+
+```{r}
+p1 = pp_check(bout_full, type = "dens_overlay_grouped",  group = "nstate", ndraws = 50)
+p2 = pp_check(bout_full, type = "stat_grouped", stat = c("median"), ndraws = 500, binwidth = 0.01, group = "nstate")
+p3 = pp_check(bout_full, type = "stat_grouped", stat = c("mean"),   ndraws = 500, binwidth = 0.01, group = "nstate")
+p4 = pp_check(bout_full, type = "stat_grouped", stat = c("mad"),    ndraws = 500, binwidth = 0.01, group = "nstate")
+p5 = pp_check(bout_full, type = "stat_grouped", stat = c("sd"),     ndraws = 500, binwidth = 0.01, group = "nstate")
+
+pout = p1 / p2 / p3 / p4 / p5 
+
+pdfname = "PAM-Desiccation-RWC-diag-plot.pdf"
+save_plot(pdfname, plot = pout, width = 80*3, height = 80*2)
+ce_df = conditional_effects(bout_full)
+```
+
+```{r}
+xlabel = "Relative water content (%)"
+ylabel = "Effective quantum yield (&Delta;F/Fm&prime;)"
+
+labeldf = data2 |> expand(nesting(state, nstate), x = 0, y = 1) |> 
+  mutate(
+    l = str_glue("({LETTERS[seq_along(nstate)]}) {state}")
+  )
+
+
+p1 = ggplot() + 
+  geom_richtext(aes(x = x, y = y, label = l),
+                data = labeldf,
+                vjust = 1, hjust = 0,
+                color = "transparent",
+                fill = "transparent",
+                text.color = "black",
+                family = "ns",
+                size = 3
+  ) +
+  geom_ribbon(
+    aes(
+      x = x, ymin = lower__, ymax = upper__, 
+    ),
+    data = ce_df$`x:nstate`,
+    alpha = 0.5
+  ) +
+  # geom_ribbon(
+  #   aes(
+  #     x = awc, ymin = .lower, ymax = .upper, fill = state
+  #   ),
+  #   data = df_out80,
+  #   alpha = 0.5
+  # ) +
+  geom_line(
+    aes(
+      x = x, y = estimate__, 
+    ),
+    data = ce_df$`x:nstate`,
+    alpha = 0.5
+  ) +
+  geom_point(aes(x = x, y = value_m,  shape = factor(individual)),
+             data = data2) +
+  scale_color_viridis_d("Treatment", end = 0.8,
+                        labels = c("Desiccation", "30-min rehydration", "1-day rehydration"),
+                        aesthetics = c("fill", "color")) +
+  scale_shape_manual("Individual",values = c(0, 1, 2, 15, 16, 17)) +
+  scale_x_continuous(xlabel, 
+                     limits = c(0, 1),
+                     breaks = seq(0, 1, by = .20),
+                     labels = seq(0, 100, by = 20)) +
+  scale_y_continuous(ylabel, limits = c(0,1),
+                     breaks = seq(0, 1, by = 0.2)) +
+  guides(shape = guide_legend(direction = "horizontal", ncol = 3, ),
+         fill = "none",
+         color = "none"
+         ) +
+  facet_wrap(vars(nstate), ncol = 1) +
+  theme(
+    legend.byrow = TRUE,
+    legend.title = element_blank(),
+    legend.text = element_markdown(size = rel(0.8)),
+    legend.key.size = unit(5, "mm"),
+    legend.position = "inside",
+    legend.position.inside = c(1, 0),
+    legend.justification = c(1, 0),
+    legend.background = element_blank(),
+    legend.margin = margin(0, 4, 0, 0, unit = "mm"),
+    legend.spacing = unit(0, "mm"),
+    strip.background = element_blank(),
+    strip.text = element_blank()
+  )
+pdfname = "PAM-Desiccation-RWC-plot.pdf"
+save_plot(pdfname, plot = p1, width = 80, height = 80*1.5)
+```
+
+
+
+::: {#fig-pam-desiccation}
+
+```{r}
+image_read(str_replace(pdfname, "pdf", "png"))
+```
+
+Non-linear response of the effective quantum yield of photosystem II (ΔFv/Fm') to relative water content across distinct hydration states. 
+The panels illustrate the physiological trajectories during desiccation, 30-minute rehydration, and 1-day rehydration. 
+Observations are plotted as points, with distinct shapes indicating individuals.
+Lines represent the population-level expected marginal means derived from a Bayesian hierarchical generalized additive model (HGAM). 
+Shaded regions denote the 95% highest density credible intervals. 
+:::
+
 
 
 
 ```{r}
-pp_check(bout_null)
+library(emmeans)
+library(bayestestR)
 ```
+
+
+```{r}
+eout = emmeans(bout_full, ~nstate|x, at = list(x = seq(0, 1, by = 0.01)), epred = TRUE)
+
+out = regrid(eout, transform = T) |> 
+  contrast("pairwise") |> 
+  describe_posterior(ci = 1, rope_range = c(-0.05, 0.05)) |> 
+  as_tibble()
+```
+
+
+```{r}
+
+out = out |> 
+  mutate(important = (pd > 0.975)&(ROPE_Percentage < 0.025))
+
+p1 = 
+  ggplot(out) + 
+  geom_hline(yintercept = 0.975) +
+  geom_line(
+    aes(
+      x = x, y = pd, color = important, group = contrast
+    )
+  )
+p2 = 
+  ggplot(out) + 
+  geom_hline(yintercept = 0.025) +
+  geom_line(
+    aes(
+      x = x, y = ROPE_Percentage, color = important, group = contrast
+    )
+  )
+p1 / p2
+```
+
 
 
 

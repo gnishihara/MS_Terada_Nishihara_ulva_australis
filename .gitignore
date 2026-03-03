@@ -1,4 +1,12 @@
-.Rproj.user
+.Rproj.user/
 .Rhistory
 .RData
 .Ruserdata
+nohup*
+*_cache/
+*_files/
+*.rds
+*.png
+*.pdf
+*.html
+*.rmarkdown
