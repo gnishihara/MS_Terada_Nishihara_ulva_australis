@@ -1,0 +1,450 @@
+---
+title: "2026 *Ulva australis* PAM -- Temperature Analysis"
+title-block-banner: true
+date: today
+date-format: "YYYY MMM MM"
+author: 
+  - name: Dai Sumiyoshi
+  - name: Kaiki Tajiri
+  - name: Masahiro Suzuki
+  - name: Gregory N. Nishihara
+  - name: Ryuta Terada
+execute: 
+  echo: false
+  message: false
+  warning: false
+---
+
+```{r}
+#| include: false
+library(tidyverse)
+library(ggpubr)
+library(ggtext)
+library(magick)
+library(patchwork)
+library(showtext)
+library(brms)
+library(tidybayes)
+library(tinytable)
+library(emmeans)
+library(bayestestR)
+library(gnnlab)
+library(utils)
+library(readxl)
+```
+
+```{r}
+#| include: false
+font_add_google("Noto Sans", family = "ns")
+theme_pubr(10, "ns", border = TRUE) |> 
+  set_theme()
+theme_pubr() |> 
+  replace_theme(
+    axis.line.x = element_blank(),
+    axis.line.y = element_blank(),
+    axis.title.x = element_markdown(family = "ns", margin = margin(0.5, 0, 0.5, 0, "lines")),
+    axis.title.y = element_markdown(family = "ns", angle= 90, margin = margin(0, 0.5, 0, 0.5, "lines")),
+  )
+showtext_auto()
+folder = "~/Dropbox/MS_Terada_Greg/"
+folder = "./Data/"
+fnames = dir(folder, recursive = TRUE)
+```
+
+
+```{r}
+#| include: false
+ftext = "PAM_Temp"
+fname = str_c(folder, str_subset(fnames, ftext)) 
+esheets = excel_sheets(fname)
+data = tibble(fname, esheets) |> 
+  mutate(data = map2(fname, esheets, \(fname = fname, esheets = esheets) {
+    read_xlsx(fname, sheet = esheets[1]) |> select(Temp, PAR, matches("Y\\(II\\)"))
+  } )) |> 
+  mutate(Days = str_extract(esheets, "[0-9]+")) |> 
+  select(Days, data) |> 
+  unnest(data) |> 
+  pivot_longer(matches("^Y")) |> 
+  mutate(ID = as.numeric(str_extract(name, "[0-9]+")))
+
+data = data |> 
+  group_nest(Days, ID) |> 
+  mutate(individual = 1:n()) |> 
+  unnest(data) |> 
+  mutate(individual = factor(individual))
+
+data = data |> mutate(Days = factor(Days, labels = c("D1", "D3", "D5", "D7")), fTemp = factor(Temp), ID = factor(ID)) 
+
+data = data |> mutate(y = (value * (n() -1) + 0.5)/ n())
+
+```
+
+```{r}
+xlabel = "Temperature (&deg;C)"
+ylabel = "Effective quantum yield (&Delta;F/Fm&prime;)"
+xbreaks = unique(data$Temp)
+xbreaks = seq(min(xbreaks), max(xbreaks), by = 4)
+# 1. Create a label dataframe 
+# We take distinct categories and generate the "A: ..." label here
+labeldf = data |> expand(Days, x = min(Temp), y = 1) |> 
+  mutate(
+    l = str_glue("({LETTERS[seq_along(Days)]}) Incubation duration: {Days}-d ")
+  )
+
+p1 = 
+  ggplot(data) + 
+  geom_point(aes(x = Temp, y = value), 
+             position = position_jitter(width = 0.2), 
+             shape = 21,
+             fill = "black",
+             stroke = 0,
+             alpha = 0.8) +
+  geom_richtext(aes(x = x, y = y, label = l),
+                data = labeldf,
+    vjust = 1, hjust = 0,
+    color = "transparent",
+    fill = "transparent",
+    text.color = "black",
+    family = "ns", 
+    size = 3
+  ) +
+  scale_x_continuous(xlabel, breaks = xbreaks, limits = range(xbreaks)) +
+  scale_y_continuous(ylabel, breaks = seq(0, 1, by = 0.25), limits = c(0, 1)) +
+  facet_wrap(vars(Days), ncol = 2) +
+  theme(
+    strip.text = element_blank(),
+    strip.background = element_blank()
+  )
+
+pdfname = "PAM-Temperature-plot.pdf"
+save_plot(pdfname, plot = p1, width = 80 * 2, height = 80)
+```
+
+
+
+Fig. 1 The response of the effective quantum yield (&Delta; F/Fm&prime;) in the green alga, 
+*Ulva australis* from Nagashima Island, Kagoshima, Japan.
+The experiments were conducted at temperature treatments of 4 to 36 &deg;C 
+after 1, 3, 5, and 7 days of incubation at
+50 &mu;mol photons m^-2^ s^-1^ and a 12L12D photoperiod.
+The points are jittered horizontally for clarity (n = 10).
+
+```{r}
+image_read(str_replace(pdfname, "pdf", "png"))
+```
+
+# Analysis
+
+
+Table 1. The mean, standard deviation (Std. Dev.), and standard error (Std. Err.) of the effective quantum yield (&Delta;Fv/Fm&prime;) observations.
+The light to dark ratio is 12L12D and the light was set to 50 PAR (&mu;mol photons m<sup>-2</sup> s<sup>-1</sup>).
+
+```{r}
+data |> 
+  group_by(Days, Temp) |> 
+  reframe(across(value, list(m = mean, sd = sd, se = se, n = length))) |> 
+  mutate(Days = str_glue("{Days}-d ")) |> 
+  rename(
+     "Incubation duration (Days)"= Days,
+     "Temperature (&deg;C)"= Temp,
+     "Mean"= value_m,
+     "Mean"= value_m,
+     "Std. Dev."= value_sd,
+     "Std. Error"= value_se,
+     "N"= value_n
+  ) |> 
+  tt() |>
+  tt_format(j = 3:5, sprintf = "%0.3f") |> 
+  tt_style(align = "r") |> 
+  theme_striped()
+```
+
+## The model
+
+To quantify the effect of water temperature on the effective quantum yield, we employed a Bayesian multilevel non-linear model.
+Effective quantum yield is the proportion of absorbed light used in photosynthesis by PSII, and operationally range from 0 to 1.
+Therefore, a zero-inflated beta distribution was used to model the error structure of the model, which accommodates the 0 to 1 open interval and
+when the effective quantum yields drop to zero at high temperatures (Eq. #eq-likelihood).
+
+$$
+y \sim \text{Zero-Inflated-Beta}(\mu, \phi, \pi)
+$$ {#eq-likelihood}
+
+The observation $y$ is the effective quantum yield and the
+distribution is parameterized by the mean ($\mu$), precision ($\phi$), and zero-inflation probability ($\pi$).
+
+The expected effective quantum yield ($\mu$) is a linear function of water temperature.
+
+
+
+```{r}
+fullmodel = 
+  bf(y ~ Days + s(Temp, k = 10, bs = "ps"),
+     zi ~ Days + s(Temp, by = Days, k = 4, bs = "ps"),
+     phi ~ Days + s(Temp, by = Days, k = 4, bs = "ps")) +
+  zero_inflated_beta()
+
+# get_prior(nullmodel, data = data)
+get_prior(fullmodel, data = data)
+
+priors = c(
+  prior(normal(1, 1), class = Intercept),
+  prior(normal(1, 1), class = b),
+  prior(exponential(1), class = sds),
+  prior(normal(0, 1),      class = Intercept, dpar = zi),
+  prior(normal(0, 1),      class = b,         dpar = zi),
+  prior(exponential(1),    class = sds,       dpar = zi),
+  prior(normal(4, 1.2),    class = Intercept, dpar = phi),
+  prior(normal(0, 1),      class = b,         dpar = phi),
+  prior(exponential(1),    class = sds,       dpar = phi),
+  NULL
+)
+
+
+set_inits = function(seed = 1, N) {
+  set.seed(seed)
+  list(
+    b_lET = rnorm(N, 3.6, 1),
+    b_lHA = rnorm(N, 2, 1),
+    b_lKT = runif(N, log(25), log(40)),
+    b_lPM = rnorm(N, 0.6, 1)
+    # sd_lET = rexp(1, 2),
+    # sd_lHA = rexp(1, 2),
+    # sd_lKT = rexp(1, 2),
+    # sd_lPM = rexp(1, 2)
+  )
+}
+
+list_inits = lapply(1:5, set_inits, N = 4)
+list_inits
+
+cores = chains = 5
+seed = 2026
+warmup = 1000
+iterations = warmup + 2000
+# file_refit = "never"
+control = list(adapt_delta = 0.99, max_treedepth = 20)
+filename_full = "pam-temperature-full-model"
+
+file.remove(str_c(filename_full, ".rds"))
+# file.exists(str_c(filename_full, ".rds"))
+library(future)
+data2 = data
+# data2 = data |> filter(str_detect(Days, "D[1|3]")) |> print()
+
+workers = "mimir"
+if(!file.exists(str_c(filename_full, ".rds"))) {
+  plan(cluster, workers = workers)
+  futurefull = future({
+    brm(
+      fullmodel,
+      data = data2,
+      prior = priors,
+      chains = chains,
+      cores = cores,
+      seed = seed,
+      iter = iterations,
+      warmup = warmup,
+      refresh = 0,
+      backend = "cmdstanr",
+      control = control,
+      save_pars = save_pars(all = TRUE)
+    )
+  }, seed = seed)
+  
+  z = 0
+  sleeptime = 5
+  while(!resolved(futurefull)) {
+    z0 = lubridate::now()
+    message("Model is still sampling... ", z0)
+    Sys.sleep(sleeptime) # Check every 10 seconds
+    z = z + sleeptime
+  }
+  
+  message("Done! You can now run: fit <- value(futurefull)\n", "Total time is: ", z/60, " minutes.")
+  bout_full = value(futurefull)
+  bout_full |> write_rds(str_c(filename_full, ".rds"))
+  plan(sequential); gc()
+  # future({Sys.info()[["nodename"]]}) |> value()
+} else {
+  bout_full = read_rds(str_c(filename_full, ".rds"))
+}
+bout_full
+```
+
+
+```{r}
+#| cache: true
+pdata_df = data2 |> expand(Temp = seq(4, 36, by = 1), Days, individual = 100) 
+pdata_df = pdata_df |> add_epred_draws(bout_full, allow_new_levels = TRUE) |> mean_hdci(.epred)
+
+p6 = ggplot() + 
+  geom_ribbon(aes(x = Temp, ymin = .lower, ymax = .upper, fill = Days), data = pdata_df, alpha = 0.5) +
+  geom_line(aes(x = Temp, y = .epred, color = Days), data = pdata_df) +
+  geom_point(aes(x = Temp, y = value, color = Days), data = data2)+
+  facet_wrap(vars(Days), nrow = 1)
+
+p1 = pp_check(bout_full, type = "dens_overlay_grouped", group = "Days",          ndraws = 50) + facet_wrap(vars(group), nrow = 1)
+p2 = pp_check(bout_full, type = "stat_grouped", stat = "median", group = "Days", binwidth = 0.001, ndraws = 500) + facet_wrap(vars(group), nrow = 1)
+p3 = pp_check(bout_full, type = "stat_grouped", stat = "mad", group = "Days",    binwidth = 0.001, ndraws = 500) + facet_wrap(vars(group), nrow = 1)
+p4 = pp_check(bout_full, type = "stat_grouped", stat = "mean", group = "Days",   binwidth = 0.001, ndraws = 500) + facet_wrap(vars(group), nrow = 1)
+p5 = pp_check(bout_full, type = "stat_grouped", stat = "sd", group = "Days",     binwidth = 0.001, ndraws = 500) + facet_wrap(vars(group), nrow = 1)
+
+pout = p1  /p2 / p3 / p4 / p5 /p6
+pdfname = here::here("Plots/pam-temperature-diagnostics.pdf")
+pngname = str_replace(pdfname, "pdf", "png")
+ggsave(pdfname, plot = pout, width = 16, height = 10, units = "mm")
+image_read_pdf(pdfname) |> image_write(pngname)
+```
+
+::: {#fig-pam-temperature-figure}
+
+```{r}
+xlabel = "Temperature (&deg;C)"
+ylabel = "Effective quantum yield, Fv/Fm&prime; (-)"
+data2 = data |> 
+  group_by(Temp, Days) |> 
+  reframe(across(value, list(m = mean, s = sd)))
+
+pout = 
+  ggplot() + 
+  geom_ribbon(aes(x = Temp, ymin = .lower, ymax = .upper, fill = Days), data = pdata_df, alpha = 0.5) +
+  geom_line(aes(x = Temp, y = .epred, color = Days), data = pdata_df) +
+  geom_point(aes(x = Temp, y = value_m, color = Days), data = data2)+
+  geom_errorbar(aes(x = Temp, 
+                    ymin = value_m - value_s, 
+                    ymax = value_m + value_s, 
+                    color = Days), data = data2, width = 0)+
+  scale_color_viridis_d(aesthetics = c("fill", "color"), end = 0.8, labels = c("1 day", "3 days", "5 days", "7 days")) +
+  scale_y_continuous(ylabel, limits = c(0, 1), breaks = seq(0, 1, by = 0.2)) +
+  scale_x_continuous(xlabel, limits = c(4, 36), breaks = seq(4, 36, by = 4)) +
+  guides(color = "none", fill = "none") +
+  facet_wrap(vars(Days), nrow = 4, 
+             labeller = 
+               labeller(Days = \(x) {
+                 lvl = seq_along(x)
+                 z1 = str_extract(x, "[0-9]")
+                 z2 = ifelse(str_detect(z1, "1"), "day", "days")
+                 str_glue("{z1} {z2} ({LETTERS[lvl]})")
+               })) +
+  coord_cartesian(clip = "off") +
+  theme(
+    strip.background = element_blank(),
+    strip.text.x = element_markdown(hjust = 1, halign = 1),
+    legend.background = element_blank(),
+    legend.position = "inside",
+    legend.position.inside = c(0, 1),
+    legend.justification = c(0, 1),
+    legend.direction = "horizontal",
+    legend.text = element_markdown(size = rel(0.8))
+  )
+pout
+
+pdfname = here::here("Plots/pam-temperature-figure.pdf")
+pngname = str_replace(pdfname, "pdf", "png")
+ggsave(pdfname, plot = pout, width = 80, height = 160, units = "mm")
+image_read_pdf(pdfname) |> image_write(pngname)
+```
+
+```{r}
+image_read(pngname)
+```
+
+The temperature response of the effective quantum yield of *Ulva australis*. 
+The symbols and error bars indicate the observation mean and one standard deviation, the lines indicate the expected values, and the shaded region indicates the 95% highest density credible intervals for each light exposure treatment.
+Some error bars are smaller than the size of the symbol.
+
+:::
+
+
+
+```{r}
+
+as_draws_df(bout_full) |> 
+  select(matches("b_lHA|b_lET")) |> 
+  mutate(
+    b_HD_DaysD1 = exp(b_lHA_DaysD1) * (exp(b_lET_DaysD1)+2),
+    b_HD_DaysD3 = exp(b_lHA_DaysD3) * (exp(b_lET_DaysD3)+2),
+    b_HD_DaysD5 = exp(b_lHA_DaysD5) * (exp(b_lET_DaysD5)+2),
+    b_HD_DaysD7 = exp(b_lHA_DaysD7) * (exp(b_lET_DaysD7)+2)
+    ) |> 
+  select(matches("HA|HD")) |> 
+  gather() |> 
+  mutate(variable = str_extract(key, "HA|HD"),
+         Days = str_extract(key, "D[0-9]")) |> 
+  group_by(variable, Days) |> 
+  mean_hdci(value)
+```
+
+
+
+## Diagnostic plots
+
+:::{.landscape}
+:::{#fig-diagnostic-plots}
+
+```{r}
+image_read(pngname)
+```
+
+Posterior predictive checks (Fig. {#fig-diagnostic-plots}) confirmed the structural and distributional adequacy of the finalized zero-inflated beta model across all light exposure treatments.
+
+:::
+
+Posterior predictive checks (Fig. {#fig-diagnostic-plots}) confirmed the structural and distributional adequacy of the finalized zero-inflated beta model across all light exposure treatments.
+Density overlays demonstrated that the simulated posterior datasets closely mirrored the empirical observations, accurately capturing both the tight clustering of effective quantum yield near the physiological optimum and the zero-inflated tail representing effective quantum yields of zero. 
+Evaluations of key summary statistics showed excellent alignment between the observed and simulated data. 
+The empirical global mean and median fell within the posterior predictive distributions, confirming accurate estimations of central tendency. 
+Furthermore, the model successfully captured the complex heteroscedasticity of the system; the observed standard deviation and the robust median absolute deviation (MAD) were precisely recovered by the simulations. 
+This confirms that modeling the precision parameter with a dedicated spline and incorporating individual-level random effects accurately resolved the structural variance, ensuring the model robustly captures both the highly precise optimal yields and the extreme physiological noise at thermal boundaries without bias.
+
+Finally, the global mean and standard deviation (SD) are highly sensitive to extreme outliers, which in this dataset are driven by the zero effective quantum yields resulting from the high-temperature treatment ($\ge$ 34 &deg;C). 
+Although the accurate recovery of the empirical mean and standard deviation demonstrates that the zero-inflation spline likely captured the effect of the zeros, 
+the median and median absolute deviation (MAD) are robust statistics that resist the influence of these zero-inflated tails, effectively describing the central tendency and variance of the tightly clustered, healthy observations near the thermal optimum. 
+While rigid variance structures can successfully predict the mean and standard deviation by artificially inflating global variance to cover the noisy tails, they typically fail to recover the median and MAD. 
+The ability of the finalized model to simultaneously predict the empirical median, MAD, mean, and SD indicates that the continuous precision spline successfully partitions the structural variance.
+
+
+
+
+
+::: {#fig-pi-phi}
+```{r}
+#| cache: true
+cs = conditional_smooths(bout_full)
+
+p1 = ggplot(cs$zi) +
+  geom_ribbon(aes(x = Temp, ymin = lower__, ymax = upper__, fill = Days), alpha = 0.5) +
+  geom_line(aes(x = Temp, y = estimate__, color = Days)) +
+  scale_color_viridis_d(aesthetics = c("fill", "color"), end = 0.8) +
+  scale_x_continuous(limits = c(4, 36), breaks = seq(4, 36, by = 8)) +
+  scale_y_continuous("Zero-inflation rate (&pi;)", limits = c(-10, 10)) +
+  facet_wrap(vars(Days), nrow = 1)
+p2 = 
+  ggplot(cs$phi) +
+  geom_ribbon(aes(x = Temp, ymin = lower__, ymax = upper__, fill = Days), alpha = 0.5) +
+  geom_line(aes(x = Temp, y = estimate__, color = Days)) +
+  scale_color_viridis_d(aesthetics = c("fill", "color"), end = 0.8) +
+  scale_x_continuous(limits = c(4, 36), breaks = seq(4, 36, by = 8)) +
+  scale_y_continuous("Precision parameter (&phi;)", limits = c(-4, 4)) +
+  facet_wrap(vars(Days), nrow = 1)
+pout = p1 / p2
+
+pdfname = here::here("Plots/pam-temperature-pi-phi-rates.pdf")
+pngname = str_replace(pdfname, "pdf", "png")
+ggsave(pdfname, plot = pout, width = 16, height = 10, units = "mm")
+image_read_pdf(pdfname) |> image_write(pngname)
+```
+
+```{r}
+image_read(pngname)
+```
+
+:::
+
+The fitted generalized additive sub-models for the zero-inflation rate and the precision parameter for the model.
+
+:::
+
+
+
