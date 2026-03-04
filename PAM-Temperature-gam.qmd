@@ -179,7 +179,7 @@ The expected effective quantum yield ($\mu$) is a linear function of water tempe
 
 ```{r}
 fullmodel = 
-  bf(value   ~ Days + s(Temp, by = Days, k = 7, bs = "ps") + s(Temp, Days, k = 7, bs = "fs"),
+  bf(value   ~ Days + s(Temp, k = 4, bs = "ps") + s(Temp, Days, k = 4, bs = "fs"),
      zi  ~   Days + s(Temp, k = 4, bs = "ps") + s(Temp, Days, k = 4, bs = "fs"),
      phi  ~  Days + s(Temp, k = 4, bs = "ps") + s(Temp, Days, k = 4, bs = "fs")) +
   zero_inflated_beta()

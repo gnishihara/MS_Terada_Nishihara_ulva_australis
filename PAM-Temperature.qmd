@@ -15,6 +15,12 @@ execute:
   warning: false
 ---
 
+
+**Important** The PT model does not work well with this dataset.
+It produces unrealistic estimates of the model parameters.
+**Do not use.**
+
+
 ```{r}
 #| include: false
 library(tidyverse)
