@@ -179,9 +179,9 @@ The expected effective quantum yield ($\mu$) is a linear function of water tempe
 
 ```{r}
 fullmodel = 
-  bf(y ~ Days + s(Temp, k = 10, bs = "ps"),
-     zi ~ Days + s(Temp, by = Days, k = 4, bs = "ps"),
-     phi ~ Days + s(Temp, by = Days, k = 4, bs = "ps")) +
+  bf(value   ~ Days + s(Temp, by = Days, k = 7, bs = "ps") + s(Temp, Days, k = 7, bs = "fs"),
+     zi  ~   Days + s(Temp, k = 4, bs = "ps") + s(Temp, Days, k = 4, bs = "fs"),
+     phi  ~  Days + s(Temp, k = 4, bs = "ps") + s(Temp, Days, k = 4, bs = "fs")) +
   zero_inflated_beta()
 
 # get_prior(nullmodel, data = data)
@@ -189,9 +189,9 @@ get_prior(fullmodel, data = data)
 
 priors = c(
   prior(normal(1, 1), class = Intercept),
-  prior(normal(1, 1), class = b),
+  prior(normal(0, 1), class = b),
   prior(exponential(1), class = sds),
-  prior(normal(0, 1),      class = Intercept, dpar = zi),
+  prior(normal(-2, 1.5),      class = Intercept, dpar = zi),
   prior(normal(0, 1),      class = b,         dpar = zi),
   prior(exponential(1),    class = sds,       dpar = zi),
   prior(normal(4, 1.2),    class = Intercept, dpar = phi),
@@ -201,29 +201,13 @@ priors = c(
 )
 
 
-set_inits = function(seed = 1, N) {
-  set.seed(seed)
-  list(
-    b_lET = rnorm(N, 3.6, 1),
-    b_lHA = rnorm(N, 2, 1),
-    b_lKT = runif(N, log(25), log(40)),
-    b_lPM = rnorm(N, 0.6, 1)
-    # sd_lET = rexp(1, 2),
-    # sd_lHA = rexp(1, 2),
-    # sd_lKT = rexp(1, 2),
-    # sd_lPM = rexp(1, 2)
-  )
-}
-
-list_inits = lapply(1:5, set_inits, N = 4)
-list_inits
 
 cores = chains = 5
 seed = 2026
 warmup = 1000
 iterations = warmup + 2000
 # file_refit = "never"
-control = list(adapt_delta = 0.99, max_treedepth = 20)
+control = list(adapt_delta = 0.95, max_treedepth = 20)
 filename_full = "pam-temperature-full-model"
 
 file.remove(str_c(filename_full, ".rds"))
@@ -293,11 +277,18 @@ p5 = pp_check(bout_full, type = "stat_grouped", stat = "sd", group = "Days",    
 pout = p1  /p2 / p3 / p4 / p5 /p6
 pdfname = here::here("Plots/pam-temperature-diagnostics.pdf")
 pngname = str_replace(pdfname, "pdf", "png")
-ggsave(pdfname, plot = pout, width = 16, height = 10, units = "mm")
+ggsave(pdfname, plot = pout, width = 3*160, height = 3*100, units = "mm")
 image_read_pdf(pdfname) |> image_write(pngname)
 ```
 
+```{r}
+conditional_smooths(bout_full)
+```
+
+
 ::: {#fig-pam-temperature-figure}
+
+
 
 ```{r}
 xlabel = "Temperature (&deg;C)"
