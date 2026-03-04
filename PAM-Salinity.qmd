@@ -13,6 +13,8 @@ execute:
   echo: false
   message: false
   warning: false
+editor_options: 
+  chunk_output_type: console
 ---
 
 ```{r}
@@ -33,9 +35,10 @@ library(readxl)
 
 ```{r}
 #| include: false
-font_add_google("Noto Sans", family = "ns")
-theme_pubr(10, "ns", border = TRUE) |> 
-  set_theme()
+font_paths("BIZUD")
+font_add(regular = "BIZ-UDGothicR.ttc", family = "ns")
+# font_add_google("Noto Sans", family = "ns")
+theme_pubr(10, "ns", border = TRUE) |> set_theme()
 theme_pubr() |> 
   replace_theme(
     axis.line.x = element_blank(),
@@ -81,7 +84,7 @@ labeldf = data |> expand(Days, x = min(PSU), y = 1) |>
     l = str_glue("({LETTERS[seq_along(Days)]}) Incubation duration: {Days}-d ")
   )
 
-p1 = ggplot(data) + 
+p1 =   ggplot(data) + 
   geom_point(aes(x = PSU, y = value), 
              position = position_jitter(width = 0.2), 
              shape = 21,
@@ -131,10 +134,10 @@ The points are jittered horizontally for clarity (n = 10).
 ```{r}
 cores = chains = 5
 seed = 2026
-warmup = 2000
-iterations = warmup + 4000
+warmup = 1000
+iterations = warmup + 1000
 file_refit = "always"
-control = list(adapt_delta = 0.95, max_treedepth = 20)
+control = list(adapt_delta = 0.9, max_treedepth = 20)
 filename_null = "pam-salinity-null-model"
 filename_full = "pam-salinity-full-model"
 output_null = "pam-salinity-null"
@@ -143,7 +146,8 @@ output_full = "pam-salinity-full"
 if(!dir.exists(output_full)) dir.create(output_full)
 
 fullmodel = bf(
-  value ~ t2(days, PSU, k = c(4, 13), bs = "cr")
+  value ~ t2(PSU, days, k = c(4,4), bs = c("ps", "re")),
+  phi ~ s(PSU, k = 4, bs = "ps")
   ) +   Beta()
 
 get_prior(fullmodel, data)
@@ -151,9 +155,10 @@ data$PSU |> unique() |> length()
 
 priors_full = c(
   prior(normal(0, 2), class = Intercept),
-  prior(normal(0, 2), class = b),
-  prior(normal(0, 2), class = sds),
-  prior(exponential(4), class = phi)
+  prior(exponential(1), class = sds),
+  prior(normal(4, 2), class = Intercept, dpar = phi),
+  prior(normal(0, 2), class = b,         dpar = phi),
+  prior(exponential(1), class = sds,     dpar = phi)
 )
 ```
 
@@ -170,11 +175,10 @@ bout_full =  brm(
     seed = seed,
     iter = iterations,
     warmup = warmup,
-    refresh = 0,
+    refresh = 20,
     file = filename_full,
     file_refit = file_refit,
     backend = "cmdstanr",
-    threads = threading(4),
     control = control,
     output_dir = output_full,
     save_pars = save_pars(all = TRUE)
