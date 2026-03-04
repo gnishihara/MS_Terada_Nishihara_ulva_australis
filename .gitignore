@@ -10,3 +10,5 @@ nohup*
 *.pdf
 *.html
 *.rmarkdown
+model_*.*.csv
+pam-salinity-full
