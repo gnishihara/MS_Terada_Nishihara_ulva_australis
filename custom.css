@@ -5,3 +5,11 @@
   margin-left: 0 !important;
   display: block !important;
 }*/
+
+caption,
+figcaption,
+.table-caption,
+caption p,
+.quarto-float-caption {
+  text-align: left !important;
+}

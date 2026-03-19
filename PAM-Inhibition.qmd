@@ -31,35 +31,25 @@ format:
 
 ## Methods
 
-We analyzed the response variable using an ordered Beta model [@kubinec2023]. 
-This model is specifically designed for continuous data bounded on the interval $[0, 1]$ that includes exact zeros and ones (i.e., $y \in [0, 1]$). 
-Zero inflated Beta and zero-one inflated beta models that we have used in the past [@borlongan2020;@terada2024] model the zeros and ones as separate Bernoulli processes. 
-The ordered Beta model uses a single latent distribution that is censored at the boundaries, providing a more parsimonious description of the data generation process [@kubinec2023] and simplied analysis.
-
-The observed data $y_i$ is assumed to occur from a latent variable $y^*_i$ which follows a Beta distribution, 
-but with its support extended beyond the standard $(0, 1)$ interval. 
-The support of the latent variable is defined as $[-\kappa, 1 + \kappa]$, where $\kappa > 0$ is an estimated "exceedance" parameter.
-The linear predictor of the model (@eq-model-form) is a function of the predictor (Hours).
+We analyzed the effective quantum yields observed when *U. australis* was exposed to 200 &mu;mol photons m^-2^ s^-1^ and 1000 &mu;mol photons m^-2^ s^-1^ with separate models.
+The response of the effective quantum yields were modeled with a linear model (Eq. @eq-model-form), where we examined the main effects of temperature ($\beta_t$) and time ($\beta_h$) and their interactions ($\beta_{t,h}$); the $\beta_0$ coefficient is the model intercept.
 
 $$
-\begin{aligned}
-logit(\mu) &= \beta_h \cdot Hours \\
-\tilde{y} &\sim Beta(\mu, \phi) \\
-y^* &=\tilde{y} (1 +2\kappa)-\kappa\\
-y &= 
-\begin{cases}
-0 &\;\text{if}\; y \le 0\\
-y^* &\;\text{if}\; 0 < y^* < 1 \\
-1 &\;\text{if}\; y^* \ge 1
-\end{cases}
-\\
-\end{aligned}
-$$ {#eq-model-form}
+logit(\mu) = \beta_0 + \beta_h + \beta_t + \beta_{h,t}
+$${#eq-model-form}
 
-The the model parameters were assigned weakly informative distributions.
-The regression coefficient $(\beta_h)$ was assigned a Student's t-distribution with 3 degrees of freedom, a location of 0, and scale of 2.5.
-The exceedance parameter $(\kappa)$ and precision parameter $(\phi)$ were assigned a gamma prior with a shape and scale of 0.01.
+We assigned a beta distribution for the low light exposure model and a zero-inflated beta distribution for the high light exposure model.
+Beta distributions are bounded on the open continuous interval $[0, 1]$ and does not include exact zeros and ones.
+Zero inflated beta distributions includes the presence of zeros as a separate Bernoulli model that we have used in the past [@borlongan2020;@terada2024]. 
+The precision parameter ($\phi$) of both of these models was modeled as a linear model of temperature and on the log scale.
+The zero-inflation rate of the high light exposure model was modeled as a linear combination of temperature, time, and their interaction on the logit scale.
+Temperature and exposure time were defined as a factor variable, with three levels for temperature and three levels (0 hours, 6 hours, and 18 hours) for exposure time.
 
+The model coefficients were assigned weakly informative distributions on the link scale.
+A Gaussian distribution with a location of one and a scale of one was applied to the $\beta_0$ coefficient, 
+and a Gaussian distribution with a location of zero and scale of one was applied to the remaining $\beta$ coefficients for Eq. {#eq-model-form}.
+Similar priors were applied to the coefficients of the linear model for the zero-inflation rate.
+A Gaussian distribution with a location of zero and a scale of two was assigned to the coefficients for the linear model for the precision.
 
 ```{r}
 #| include: false
@@ -69,6 +59,7 @@ library(ggtext)
 library(magick)
 library(patchwork)
 library(showtext)
+library(future)
 library(brms)
 library(tidybayes)
 library(bayestestR)
@@ -80,7 +71,6 @@ library(readxl)
 ```
 
 ```{r}
-#| include: false
 font_add_google("Noto Sans", family = "ns")
 theme_pubr(10, "ns", border = TRUE) |> 
   set_theme()
@@ -168,28 +158,32 @@ p1 = ggplot(data) +
     strip.text.x = element_markdown(family = "ns"),
     strip.background = element_blank()
   )
-pdfname = "PAM-Temperature-Inhibition-plot.pdf"
+pdfname = here::here("Plots/PAM-Temperature-Inhibition-plot.pdf")
 save_plot(pdfname, plot = p1, width = 80 * 2, height = 80*1.5)
 ```
 
 
 ## Results 
 
+::: {#fig-observations}
 
 ```{r}
 image_read(str_replace(pdfname, "pdf", "png"))
 ```
 
-Fig. 1. The hourly response of the effective quantum yield (&Delta; F/Fm&prime;) in the
+The hourly response of the effective quantum yield (&Delta; F/Fm&prime;) in the
 green alga, *Ulva australis* from Nagashima Island, Kagoshima, Japan.
 The experiments were conducted at temperature treatments of (A, B) 28&deg;C,
-(C, D) 16&deg;C, and (E, F) 4&deg;C crossed with irradiances of (A, C, D) 200
+(C, D) 16&deg;C, and (E, F) 4&deg;C crossed with light treatments of (A, C, D) 200
 &mu;mol photons m^-2^ s^-1^ and (B, D, F) 1000 &mu;mol photons m^-2^ s^-1^.
-The explants were acclimated for 12 hours of dim-light treatment (20
-&mu;mol photons m^-2^ s^-1^) and exposed to 6 hours of light. The points
-are jittered horizontally for clarity (n = 10).
+The explants were exposed to 6 hours of light followed by 12 hours of dim-light treatment (20
+&mu;mol photons m^-2^ s^-1^).
+The points are jittered horizontally for clarity (n = 10).
 
-Table 1. The mean, standard deviation (Std. Dev.), and standard error (Std. Err.) of the effective quantum yield (&Delta;Fv/Fm&prime;).
+:::
+
+
+::: {#tbl-observation-summary}
 
 ```{r}
 data |> 
@@ -221,158 +215,203 @@ data |>
     footnote = "hours",
     locations = cells_column_labels(columns = Hours),
   ) |> 
-  opt_footnote_spec(spec_ref = "^xb", spec_ftr = "(x)") 
+  opt_footnote_spec(spec_ref = "^xb", spec_ftr = "(x)") |> 
+    tab_style(
+    style = cell_text(align = "left"),
+    locations = cells_footnotes()
+  )
+```
+
+The mean, standard deviation (Std. Dev.), and standard error (Std. Err.) of the effective quantum yield (&Delta;Fv/Fm&prime;).
+
+:::
+
+```{r}
+data0200 = data |> 
+  filter(PAR != 1000) |> 
+  filter(Hours %in% c(0, 6, 18)) |> 
+  mutate(
+    Temp = factor(Temp, levels = c("4", "16", "28")),
+    Hours = factor(Hours, levels = c(0, 6, 18))
+    )
+
+data1000 = data |> 
+  filter(PAR == 1000) |> 
+  filter(Hours %in% c(0, 6, 18)) |> 
+  mutate(
+    Temp = factor(Temp, levels = c("4", "16", "28")),
+    Hours = factor(Hours, levels = c(0, 6, 18))
+    )
 ```
 
 ```{r}
-data2 = data |> 
-  mutate(across(c(Hours, Temp, PAR), as_factor)) |> 
-  filter(Hours %in% c(0, 6, 18))
-```
+# Important note: When a factor only has two levels,
+# it is very difficult to use it as a random effect!
 
-```{r}
+model0200 = bf(
+  value  ~ Temp * Hours,
+  phi ~ Temp
+  ) + Beta()
+
+model1000 = bf(
+  value  ~ Temp * Hours,
+  zi     ~ Temp * Hours, 
+  phi ~ Temp
+  ) + 
+  zero_inflated_beta()
+
+priors0200 = c(
+  prior(normal(1, 1),      class = Intercept),
+  prior(normal(0, 1),      class = b),
+  prior(normal(1, 1),      dpar = phi, class = Intercept),
+  prior(normal(0, 2),      dpar = phi, class = b)
+)
+priors1000 = c(
+  prior(normal(1, 1),      class = Intercept),
+  prior(normal(0, 1),      class = b),
+  prior(normal(1, 1),      class = Intercept,    dpar = zi),
+  prior(normal(0, 1),      class = b,         　 dpar = zi),
+  prior(normal(1, 1),      dpar = phi, class = Intercept),
+  prior(normal(0, 2),      dpar = phi, class = b)
+)
+
 cores = chains = 5
 seed = 2026
 warmup = 4000
 iterations = warmup + 10000
-file_refit = "always"
-control = list(adapt_delta = 0.95, max_treedepth = 20)
+# file_refit = "never"
+control = list(adapt_delta = 0.9, max_treedepth = 20)
+filename0200 = "pam-inhibition-full-model0200"
+filename1000 = "pam-inhibition-full-model1000"
 
-data2 = data2 |> 
-  group_nest(PAR, Temp) |> 
-  mutate(nullout = pmap(list(data, PAR, Temp), \(data, PAR, Temp) {
-    x1 = ifelse(PAR == 1000, "HL", "LL")
-    x2 = case_when(
-      Temp == 4 ~ "04",
-      Temp == 16 ~ "16",
-      TRUE ~ "28"
-    )
-    
-    nullmodel = bf(value ~ 1) + zero_inflated_beta()
-    null_priors = c(
-      prior(normal(0, 2), class = Intercept),
-      prior(exponential(4), class = phi),
-      prior(beta(1,1), class = zi)
-    )
-    # cores = chains = 4
-    # seed = 2026
-    # warmup = 1000
-    # iterations = warmup + 1000
-    # file_refit = "on_change"
-    # control = list(adapt_delta = 0.95, max_treedepth = 15)
-    filename = str_glue("pam-inhibition-{x1}{x2}-nullmodel")
-    brm(
-      nullmodel,
-      data = data,
-      prior = null_priors,
-      chains = chains,
-      cores = cores,
-      seed = seed,
-      iter = iterations,
-      warmup = warmup,
-      refresh = 0,
-      backend = "cmdstanr",
-      threads = threading(4),
-      file = filename,
-      file_refit = file_refit,
-      control = control,
-      save_pars = save_pars(all = TRUE)
-    )
-  })) |> 
-  mutate(fullout = pmap(list(data, PAR, Temp), \(data, PAR, Temp) {
-    x1 = ifelse(PAR == 1000, "HL", "LL")
-    x2 = case_when(
-      Temp == 4 ~ "04",
-      Temp == 16 ~ "16",
-      TRUE ~ "28"
-    )
-    fullmodel = bf(value ~ 0 + Hours) + zero_inflated_beta()
-    full_priors = c(
-      prior(normal(0, 2), class = b),
-      # prior(student_t(3, 0, 2.5), class = sd, lb = 0),
-      prior(exponential(4), class = phi),
-      prior(beta(1,1), class = zi)
-    )
-    
-    # cores = chains = 4
-    # seed = 2026
-    # warmup = 1000
-    # iterations = warmup + 1000
-    # file_refit = "on_change"
-    # control = list(adapt_delta = 0.95, max_treedepth = 15)
-    filename = str_glue("pam-inhibition-{x1}{x2}-fullmodel")
-    mout = brm(
-      fullmodel,
-      data = data,
-      prior = full_priors,
-      chains = chains,
-      cores = cores,
-      seed = seed,
-      iter = iterations,
-      warmup = warmup,
-      refresh = 0,
-      backend = "cmdstanr",
-      threads = threading(4),
-      file = filename,
-      file_refit = file_refit,
-      control = control,
-      save_pars = save_pars(all = TRUE)
-    )
-    # mout = add_criterion(mout, criterion = c("loo", "waic"), seed = 2025, cores = cores)
-    return(mout)
-  }))
+# file.remove(str_c(filename0200, ".rds"))
+# file.exists(str_c(filename0200, ".rds"))
+# file.remove(str_c(filename1000, ".rds"))
+# file.exists(str_c(filename1000, ".rds"))
+# 
+# workers = "mimir"
+# 
+# if(!file.exists(str_c(filename0200, ".rds"))) {
+#   plan(cluster, workers = workers)
+#   futurefull0200 = 
+#     future({
+#       brm(
+#         model0200,
+#         data = data0200,
+#         prior = priors0200,
+#         chains = chains,
+#         cores = cores,
+#         seed = seed,
+#         iter = iterations,
+#         warmup = warmup,
+#         refresh = 0,
+#         backend = "cmdstanr",
+#         control = control,
+#         save_pars = save_pars(all = TRUE)
+#       )
+#     }, seed = seed)
+# }
+# 
+# if(!file.exists(str_c(filename1000, ".rds"))) {
+#   plan(cluster, workers = workers)
+#   futurefull1000 = 
+#     future({
+#       brm(
+#         model1000,
+#         data = data1000,
+#         prior = priors1000,
+#         chains = chains,
+#         cores = cores,
+#         seed = seed,
+#         iter = iterations,
+#         warmup = warmup,
+#         refresh = 0,
+#         backend = "cmdstanr",
+#         control = control,
+#         save_pars = save_pars(all = TRUE)
+#       )
+#     }, seed = seed)
+# }
+# 
+# while(! (resolved(futurefull0200) & resolved(futurefull1000))) {
+#   message("Sampling in progress.")
+#   Sys.sleep(1)
+# }
+
+# bout0200 = value(futurefull0200)
+# bout0200 |> write_rds(str_c(filename0200, ".rds"))
+# bout1000 = value(futurefull1000)
+# bout1000 |> write_rds(str_c(filename1000, ".rds"))
+
+bout0200 = read_rds(str_c(filename0200, ".rds"))
+bout1000 = read_rds(str_c(filename1000, ".rds"))
+# plan(sequential); gc()
+
+pdata0200_df = data0200 |> expand(Temp, Hours) 
+pdata1000_df = data1000 |> expand(Temp, Hours) 
+pdata0200_df = pdata0200_df |> add_epred_draws(bout0200, allow_new_levels = TRUE) |> mean_hdci(.epred)
+pdata1000_df = pdata1000_df |> add_epred_draws(bout1000, allow_new_levels = TRUE) |> mean_hdci(.epred)
+
+p0200_1 = pp_check(bout0200, type = "dens_overlay_grouped",          group = "Temp",                     ndraws = 50) + facet_wrap(vars(group), nrow = 1)
+p0200_2 = pp_check(bout0200, type = "stat_grouped", stat = "median", group = "Temp",   binwidth = 0.001, ndraws = 500) + facet_wrap(vars(group), nrow = 1)
+p0200_3 = pp_check(bout0200, type = "stat_grouped", stat = "mad",    group = "Temp",   binwidth = 0.001, ndraws = 500) + facet_wrap(vars(group), nrow = 1)
+p0200_4 = pp_check(bout0200, type = "stat_grouped", stat = "mean",   group = "Temp",   binwidth = 0.001, ndraws = 500) + facet_wrap(vars(group), nrow = 1)
+p0200_5 = pp_check(bout0200, type = "stat_grouped", stat = "sd",     group = "Temp",   binwidth = 0.001, ndraws = 500) + facet_wrap(vars(group), nrow = 1)
+p1000_1 = pp_check(bout1000, type = "dens_overlay_grouped",          group = "Temp",                     ndraws = 50) + facet_wrap(vars(group), nrow = 1)
+p1000_2 = pp_check(bout1000, type = "stat_grouped", stat = "median", group = "Temp",   binwidth = 0.001, ndraws = 500) + facet_wrap(vars(group), nrow = 1)
+p1000_3 = pp_check(bout1000, type = "stat_grouped", stat = "mad",    group = "Temp",   binwidth = 0.001, ndraws = 500) + facet_wrap(vars(group), nrow = 1)
+p1000_4 = pp_check(bout1000, type = "stat_grouped", stat = "mean",   group = "Temp",   binwidth = 0.001, ndraws = 500) + facet_wrap(vars(group), nrow = 1)
+p1000_5 = pp_check(bout1000, type = "stat_grouped", stat = "sd",     group = "Temp",   binwidth = 0.001, ndraws = 500) + facet_wrap(vars(group), nrow = 1)
 
 
+design = "
+AF
+BG
+CH
+DI
+EJ"
+
+pout = p0200_1 + p0200_2 + p0200_3 + p0200_4 + p0200_5 + p1000_1 + p1000_2 + p1000_3 + p1000_4 + p1000_5 + plot_layout(design = design)
+
+pdfname = here::here("Plots/pam-inhibition-diagnostics.pdf")
+pngname = str_replace(pdfname, "pdf", "png")
+ggsave(pdfname, plot = pout, width = 6*160, height = 3*100, units = "mm")
+image_read_pdf(pdfname) |> image_write(pngname)
 ```
 
 ```{r}
-data2 = data2 |> 
-  mutate(e1 = map(fullout, \(e1) {emmeans(e1, ~Hours)})) |> 
-  mutate(e0 = map(e1, \(e1) { contrast(e1, "pairwise")})) |> 
-  mutate(dout = map(e0, \(x) {
-    describe_posterior(x, ci = 0.95, rope_ci = 1, rope_range = c(-0.1, 0.1) * c(pi/sqrt(3)))
-  }))
-# roperange = c(-0.1, 0.1) * c(pi / sqrt(3))
-# e1 = emmeans(fullout, ~ Hours|Temp, by = c("PAR"))
-# e0 = contrast(e1, "pairwise", by = c( "PAR"))
-# The probability of direction is an index of effect existence and ranges from 50 to 100%.
-# The larger the pd the greater the evidence of an effect in the direction of the sign of the median.
-# ROPE: Region of Practical Equivalence
-# you can reject the null hypothesis if the % inside of ROPE is less than 2.5 %
-# dout = describe_posterior(e0, ci = c(0.95),rope_ci = 1, 
-# rope_range = roperange, verbose = FALSE)
-# pd(e0) |> pd_to_p()
+tab0200 = 
+  emmeans(bout0200, ~Hours|Temp) |> contrast("trt.vs.ctrl1") |> describe_posterior(rope_ci = 1, rope_range = c(-0.1, 0.1) * pi/sqrt(3)) |> 
+  as_tibble()
+zip1000 = 
+  emmeans(bout1000, ~Hours|Temp, dpar = "zi") |> contrast("trt.vs.ctrl1") |> describe_posterior(rope_ci = 1, rope_range = c(-0.1, 0.1) * pi/sqrt(3)) |> 
+    as_tibble()
+tab1000 = 
+  emmeans(bout1000, ~Hours|Temp) |> contrast("trt.vs.ctrl1") |> describe_posterior(rope_ci = 1, rope_range = c(-0.1, 0.1) * pi/sqrt(3)) |> 
+  as_tibble()
+
+tab1000 = bind_rows(
+tab1000 |> filter(!str_detect(Temp, "4")),
+zip1000 |> filter(str_detect(Temp, "4"))
+) |> 
+  arrange(Temp)
 
 ```
 
 
-Table 2. Multiple comparisons analysis of the difference in effective quantum
-yield. 
-The median effect and the 95% highest density credible interval (HDCI) is on the logit scale. 
-PD is the Probability of Direction, which is an index of the proportion of the posterior distribution that is in the direction of the sign of the median effect and ranges for 0.5 to 1.
-Pr. ROPE is the probability that 100% of the posterior distribution falls within the Region of Practical Equivalence (ROPE).
-ROPE ranges from 0 to 1, and if the Pr. ROPE is above 97.5% than there is a high likelihood that the posterior distribution of the effect falls completely within the ROPE.
-If the Pr. ROPE is below 2.5% then there is a high likelihood that the postererior distribution of the effect is not in side the ROPE.
-the 100% HDCI is within the region of practical equivalence (ROPE) and ranges from 0 to 1.
+
+::: {#tbl-multiple-comparisons-0200}
 
 ```{r}
-data2 |> 
-  select(PAR, Temp, dout) |> 
-  unnest(dout) |> 
-  as_tibble() |>
-  mutate(across(c(PAR, Temp), ~as.numeric(as.character(.)))) |> 
-  arrange(PAR, Temp) |> 
+tab0200 |> 
   mutate(contrast  = str_replace(contrast, "Hours0", "0 hrs")) |> 
   mutate(contrast  = str_replace(contrast, "Hours6", "6 hrs")) |> 
   mutate(contrast  = str_replace(contrast, "Hours18", "18 hrs")) |> 
   mutate(hdci = sprintf("%0.3f to %0.3f", CI_low, CI_high)) |> 
-  mutate(pd = ifelse(pd <= 0.001, "< 0.001", sprintf("%0.3f", pd))) |> 
-  mutate(ROPE_Percentage = ifelse(ROPE_Percentage <= 0.001, "< 0.001", sprintf("%0.3f", ROPE_Percentage))) |> 
-  select(PAR, Temp, contrast, Median, hdci, pd, ROPE_Percentage) |> 
+  select(Temp, contrast, Median, hdci, pd, ROPE_Percentage) |> 
   gt() |>
   cols_label(
     Temp = html("Temperature"),
-    PAR = html("Irradiance"),
     contrast = "Contrast",
     Median = "Median effect",
     hdci = "95% HDCI",
@@ -380,11 +419,9 @@ data2 |>
     ROPE_Percentage = "Pr. ROPE"
   ) |> 
   fmt_number(columns = c(Median), decimals = 3) |> 
+  fmt_number(columns = c(pd), decimals = 1, scale_by = 100, pattern = "{x}%") |> 
+  fmt_number(columns = c(ROPE_Percentage), decimals = 1, scale_by = 100, pattern = "{x}%") |> 
   cols_align(align = "right") |> 
-  tab_footnote(
-    footnote = html("&mu;mol photons m<sup>-2</sup> s<sup>-1</sup>"),
-    locations = cells_column_labels(columns = PAR)
-  ) |> 
   tab_footnote(
     footnote = html("&deg;C"),
     locations = cells_column_labels(columns = Temp)
@@ -406,24 +443,136 @@ data2 |>
     locations = cells_column_labels(columns = c(Median, hdci)),
     placement = "left"
   ) |> 
-  opt_footnote_spec(spec_ref = "^xb", spec_ftr = "(x)") 
+  opt_footnote_spec(spec_ref = "^xb", spec_ftr = "(x)") |> 
+    tab_style(
+    style = cell_text(align = "left"),
+    locations = cells_footnotes()
+  )
 ```
 
-We evaluated pairwise differences in the effective quantum yield between exposure times (0, 6, and 18 hours) across distinct experimental conditions defined by irradiance and temperature. 
-Posterior contrasts of the effective quantum yield revealed that the relationship between exposure times varied substantially depending on the thermal and light environment. 
-Specifically, the difference between the 0-hour and 6-hour time points was consistently positive across all conditions (PD > 0.999), indicating a reduction in the (effective) quantum yield at 6 hours relative to the start. 
-However, the subsequent recovery or difference at 18 hours appeared highly dependent on temperature.
+Comparing the effect of time on the effective quantum yields in the 200 &mu;mol photons m^-2^ s^-1^ exposure experiment. 
+The median effect and the 95% highest density credible interval (HDCI) is on the logit scale. 
+PD is the Probability of Direction, which is an index of the proportion of the posterior distribution that is in the direction of the sign of the median effect and ranges for 0.5 to 1.
+Pr. ROPE is the probability that 100% of the posterior distribution falls within the Region of Practical Equivalence (ROPE).
+ROPE ranges from 0 to 1, and if the Pr. ROPE is above 97.5% than there is a high likelihood that the posterior distribution of the effect falls completely within the ROPE.
+If the Pr. ROPE is below 2.5% then there is a high likelihood that the posterior distribution of the effect is not in side the ROPE.
+the 100% HDCI is within the region of practical equivalence (ROPE) and ranges from 0 to 1.
 
-In the low-temperature treatment (4&deg;C), we observed distinct temporal dynamics. 
-At high irradiance (1000 &mu;mol photons m^-2^ s^-1^), the quantum yields on the logit scale were higher at both 6 hours (median difference = 7.51, 95%HDCI [2.61, 27.22]) and 18 hours (median difference = 7.21, 95% HDCI [2.54, 26.99]) when compared to the initial time point at 0 hours. 
-Notably, at this high irradiance, the difference between 6 and 18 hours was uncertain (PD = 0.54) and the credible interval was wide, amd included zero. 
-Conversely, at low irradiance (200 &mu;mol photons m^-2^ s^-1^), all three time points remained distinct, with a clear decline from 0 to 6 hours followed by a partial increase from 6 to 18 hours (median difference = -1.24, PD = 1.00).
+:::
 
-In warmer conditions (16&deg;C and 28&deg;C), a pattern of "practical equivalence" emerged between the start (0 hours) and end (18 hours) of the cycle, particularly under high light. 
-For example, at 16&deg;C and 1000 &mu;mol photons m^-2^ s^-1^, while the drop from 0 to 6 hours was clear
-(median difference = 1.94, PD = 1.00), the difference between 0 and 18 hours was negligible (-0.053, Pr. ROPE = 0.999). 
-When the Pr. ROPE of the effect between 0 hrs and 18 hrs is large, the quantum yield most likely returned to initial values. 
-A similar trend was observed at 28&deg;C; despite strong differences between 0 vs. 6 hours and 6 vs. 18 hours (PD = 1.00 for both), the magnitude of difference between 0 and 18 hours was small (median difference = 0.12) with a high probability of being practically negligible (Pr. ROPE = 0.73).
+The response of effective quantum yield exposed to low light across different temperatures was analyzed and the posterior contrasts were calculated by comparing performance at 6 and 18 hours against the effective quantum yield at 0 hours (baseline). 
+Estimates are reported on the logit scale (@tbl-multiple-comparisons-0200). 
+To determine whether these changes were biologically meaningful, we calculated the Probability of Direction (PD) and the percentage of the posterior distribution falling within a Region of Practical Equivalence (ROPE), defined a priori as $\pm 0.10 \times \pi/\sqrt{3}$ [@Kruschke2013;@kruschke2021;@ortega2017@kruschke2017].
+
+We detected sustained depression of the effective quantum yield in the 4&deg;C treatment (@tbl-multiple-comparisons-0200).
+Exposure to low temperature induced a decrease in effective quantum yield (@fig-observations) and 
+by 6 hours, the effective quantum yield dropped substantially from baseline.
+The probability of direction (PD) was 100% for this decrease, with a 0.0% probability that the posterior distribution fell within the ROPE, indicating a significant reduction in effective quantum yield. 
+After dim-light acclimation, the effective quantum yield recovered, however the yield remained significantly depressed compared to the baseline,
+reflecting sustained physiological stress without full recovery.
+
+During the 16&deg;C exposure experiment, the effective quantum yield showed a small but significant reduction in yield at 6 hours (@tbl-multiple-comparisons-0200). 
+However, after dim-light treatment, the effective quantum yield completely recovered. 
+The median difference from baseline approached zero and 99.5% of the posterior distribution fell completely within the ROPE. 
+This provides strong evidence that 12 hours of dim-light treatment returned the effective quantum yield to their baseline performance.
+
+At 28 &deg;C, the results were similar to that of the 16&deg;C exposure experiment, and was characterized by a significant drop at 6 hours (@tbl-multiple-comparisons-0200). 
+The effective quantum yield recovered to slightly above baseline levels after the dim-light treatment.
+Despite the confidence in the direction of this increase, 63.4% of the posterior distribution fell within the ROPE.
+
+
+::: {#tbl-multiple-comparisons-1000}
+
+```{r}
+tab1000 |> 
+  mutate(contrast  = str_replace(contrast, "Hours0", "0 hrs")) |> 
+  mutate(contrast  = str_replace(contrast, "Hours6", "6 hrs")) |> 
+  mutate(contrast  = str_replace(contrast, "Hours18", "18 hrs")) |> 
+  mutate(hdci = sprintf("%0.3f to %0.3f", CI_low, CI_high)) |> 
+  select(Temp, contrast, Median, hdci, pd, ROPE_Percentage) |> 
+  gt() |>
+  cols_label(
+    Temp = html("Temperature"),
+    contrast = "Contrast",
+    Median = "Median effect",
+    hdci = "95% HDCI",
+    pd = "PD",
+    ROPE_Percentage = "Pr. ROPE"
+  ) |> 
+  fmt_number(columns = c(Median), decimals = 3) |> 
+  fmt_number(columns = c(pd), decimals = 1, scale_by = 100, pattern = "{x}%") |> 
+  fmt_number(columns = c(ROPE_Percentage), decimals = 1, scale_by = 100, pattern = "{x}%") |> 
+  cols_align(align = "right") |> 
+  tab_footnote(
+    footnote = html("&deg;C"),
+    locations = cells_column_labels(columns = Temp)
+  ) |> 
+  tab_footnote(
+    footnote = "95% highest density credible interval",
+    locations = cells_column_labels(columns = hdci)
+  ) |> 
+  tab_footnote(
+    footnote = "Probability of direction",
+    locations = cells_column_labels(columns = pd)
+  ) |> 
+  tab_footnote(
+    footnote = "Probability of being within the region of practical equivalence",
+    locations = cells_column_labels(columns = ROPE_Percentage)
+  ) |> 
+  tab_footnote(
+    footnote = "On the logit scale",
+    locations = cells_column_labels(columns = c(Median, hdci)),
+    placement = "left"
+  ) |> 
+  opt_footnote_spec(spec_ref = "^xb", spec_ftr = "(x)") |> 
+  tab_style(
+    style = cell_text(align = "left"),
+    locations = cells_footnotes()
+  )
+```
+
+Comparing the effect of time on the effective quantum yields in the 1000 &mu;mol photons m^-2^ s^-1^ exposure experiment at 16&deg;C and 28&deg;C.
+Note that the comparisons done at 4&deg;C examine the increase in probability that the effective quantum yield will be zero.
+The median effect and the 95% highest density credible interval (HDCI) is on the logit scale. 
+PD is the Probability of Direction, which is an index of the proportion of the posterior distribution that is in the direction of the sign of the median effect and ranges for 0.5 to 1.
+Pr. ROPE is the probability that 100% of the posterior distribution falls within the Region of Practical Equivalence (ROPE).
+ROPE ranges from 0 to 1, and if the Pr. ROPE is above 97.5% than there is a high likelihood that the posterior distribution of the effect falls completely within the ROPE.
+If the Pr. ROPE is below 2.5% then there is a high likelihood that the posterior distribution of the effect is not in side the ROPE.
+the 100% HDCI is within the region of practical equivalence (ROPE) and ranges from 0 to 1.
+
+
+:::
+
+We also assesed the impact of high light exposure (1000 &mu;mol photons m^-2^ s^-1^) on the effective quantum yield across three temperature treatments; the posterior contrasts were evaluated comparing performance at 6 and 18 hours against the baseline (@fig-observations). 
+As with the low light exposure experiment, the estimates of effective quantum yield are reported on the logit scale, and practical significance was assessed using a Probability of Direction (pd) and a Region of Practical Equivalence (ROPE) [@Kruschke2013;@kruschke2021;@ortega2017@kruschke2017].
+
+At 4&deg;C, the high light exposure completely drove the effective quantum yields to zero after 6 hours and there was no recovery after dim-light treatment (@tbl-multiple-comparisons-1000).
+The absence of non-zero observations cannot inform the median effect size under these conditions, hence their posterior estimates reflect the 
+prior distributions assigned to the model and cannot meaningfully be compared.
+Therefore, we compare the zero-inflation probability of the model.
+Positive estimates on the logit scale indicate an increased probability of an effective quantum yield of zero, compared to the baseline.
+After 6 hours of exposure, there was a significant increase in the probability of complete cessation of photosynthetic activity.
+This risk of total failure is highly robust, characterized by a 99.9% Probability of Direction and only 0.2% of the posterior distribution falling within the ROPE. 
+This state of severe impairment was sustained through the dim-light acclimation period, where the probability of zero yield remained definitively elevated above baseline.
+Collectively, these zero-inflation contrasts confirm that the combined stress of low temperature and high light induces an immediate, severe, and sustained state of complete photo-inhibition.
+
+Explants exposed to 1000 &mu;mol photons m^-2^ s^-1^ at 16&deg;C exhibited a severe reduction in quantum yield at 6 hours
+and this drop was significant (@tbl-multiple-comparisons-1000). 
+Despite the severity of the initial high-light exposure, performance demonstrated a complete recovery after treatment with dim-light.
+The median difference returned to near-zero, with a PD of 96.6% and 100% of the posterior distribution fell entirely within the ROPE, indicating definitive practical equivalence with baseline performance.
+
+At 28&deg;C, the 6-hour exposure resulted in a significant impairment in effective quantum yield (@tbl-multiple-comparisons-1000).
+Unlike the full recovery observed at 16&deg;C, the recovery at 28&deg;C after dim-light acclimation was incomplete. 
+The effective quantum yield remained slightly depressed compared to baseline.
+The practical significance of this residual depression is ambiguous, as 44.7% of the posterior distribution remained within the ROPE.
+
+To validate the appropriateness and predictive accuracy of the fitted Bayesian models, comprehensive graphical posterior predictive checks (PPCs) were conducted. 
+Model fit was evaluated by comparing the observed experimental data to simulated datasets drawn from the joint posterior predictive distribution of the models. 
+Density overlays confirmed that both the low-light model and the high-light model accurately replicated the overall shape and boundaries of the observed effective quantum yield distributions. 
+Furthermore, summary-statistic PPCs demonstrated that the models reliably captured both the central tendencies (mean and median) and the dispersion (standard deviation and median absolute deviation) of the data across all temperature treatments. 
+Crucially, the diagnostic checks verified that explicitly modeling the precision parameter ($\phi$) as a function of temperature successfully accounted for observed heteroscedasticity. 
+Likewise, the zero-inflated architecture appropriately and accurately reproduced the total structural collapse (yields of absolute zero) observed under the 4&deg;C high-light treatment. 
+These diagnostics confirm that the selected model structures provide robust, unbiased, and biologically realistic representations of the physiological data.
 
 --------------------------------------------------------------------------------
 
@@ -524,56 +673,88 @@ NHST（P値）の最大の問題点は、有意差が出なかった場合（）
 
 ## Model diagnostic plots
 
+
+:::{#fig-overlay}
 ```{r}
-data3 = data2 |> 
-  mutate(ecdf = map(fullout, \(x) {
-    pp_check(x, type = "ecdf_overlay", ndraws = 25)
-  })) 
+p0200_1 + p1000_1 + plot_layout(ncol = 1) + plot_annotation(tag_levels = 'A')
+```
 
-plots = data3|> pull(ecdf)
-plabels = data3 |> 
-  mutate(l = str_glue("({LETTERS[seq_along(PAR)]}) {PAR} &mu;mol photons m^-2^ s^-1^ {Temp}&deg;C")) |> pull(l)
-plabel = str_flatten_comma(plabels, last = ", and ")
+Bayesian Posterior Predictive Check (PPC) Density Overlays for Effective Quantum Yield Models.
 
-wrap_plots(plots) + plot_annotation(tag_levels = 'A')
+The plots represent a visual assessment of model fit (density overlays) comparing the observed distribution of effective quantum yield data to the data predicted by the fitted Bayesian models. 
+The top row (A) displays results from the low-light model, while the bottom row (B) displays results from the high-light model. 
+Individual panels within each row correspond to the temperature treatments: 4&deg;C, 16&deg;C, and 28&deg;C. 
+In all panels, the thick dark blue line ($y$) represents the kernel density estimation of the observed experimental data. 
+The multiple thin light blue lines ($y_{\text{rep}}$) represent density estimations calculated from 50 independent datasets simulated (replicated) from the posterior predictive distributions of the model. 
+Row B captures the characteristics of the zero-inflated model, specifically showing the pronounced spike at exactly zero yield observed in the 4&deg;C panel due to total photoinhibition. 
+High congruence between the thick and thin lines signifies an adequate model fit.
+:::
+
+
+:::{#fig-median}
+```{r}
+p0200_2 + p1000_2 + plot_layout(ncol = 1) + plot_annotation(tag_levels = 'A')
 
 ```
 
-Fig. A. The posterior predictive check using the empirical cumulative distribution funcion indicated a good model fit for all of the 
-analyzed data; `{r} plabel`.
-The model captures the structure of the data, since the observations ($y$) are contained within the distribution of the posterior predictions $y_{rep}$. 
+Posterior Predictive Check (PPC) of Median Effective Quantum Yield.
+This plots illustrates a summary-statistic-based posterior predictive check, evaluating the ability of the model to reproduce the central tendency (median) of the observed data. 
+The top row (A) displays the performance of the low-light model, and the bottom row (B) displays the high-light zero-inflated model. 
+Columns indicate the temperature treatments: 4&deg;C, 16&deg;C, and 28&deg;C. 
+In each panel, the solid dark blue vertical line represents the median calculated directly from the observed experimental data, $T(y)$. 
+The light blue histogram displays the distribution of medians, $T(y_{\text{rep}})$, calculated from simulated datasets drawn from the posterior predictive distribution of the model. 
+The consistent alignment of the observed medians within the main mass of the simulated distributions across treatments indicates that both models adequately capture the central tendency of the quantum yield responses.
+Notably, in row B at 4&deg;C, the model accurately replicates the observed median of absolute zero, driven by the zero-inflation component.
+:::
 
-
+:::{#fig-mad}
 ```{r}
-data3 = data3 |> 
-  mutate(statsd = map(fullout, \(x) {
-    pp_check(x, type = "stat", stat = "sd", ndraws = 1000)
-  })) 
+p0200_3 + p1000_3 + plot_layout(ncol = 1) + plot_annotation(tag_levels = 'A')
 
-plots = data3|> pull(statsd)
-plabels = data3 |> 
-  mutate(l = str_glue("({LETTERS[seq_along(PAR)]}) {PAR} &mu;mol photons m^-2^ s^-1^ {Temp}&deg;C")) |> pull(l)
-plabel = str_flatten_comma(plabels, last = ", and ")
-wrap_plots(plots) + plot_annotation(tag_levels = 'A')
 ```
 
-Fig. B. The posterior predictive check of the standard deviation indicated that the standard variation of the posterior predictions were modeled well for all of the 
-analyzed data; `{r} plabel`.
-The model captures the standard deviation of the data, since the observations ($T(y)$) are contained within the distribution of the posterior predictions $T(y_{rep})$. 
+Posterior Predictive Check (PPC) of Median Absolute Deviation.
+This plots illustrates a summary-statistic-based posterior predictive check, evaluating the ability of the model to capture the dispersion of the observed data by using the median absolute deviation (MAD). 
+The top row (A) displays the performance of the low-light model, and the bottom row (B) displays the high-light zero-inflated model. 
+Columns indicate the temperature treatments: 4&deg;C, 16&deg;C, and 28&deg;C. 
+In each panel, the solid dark blue vertical line represents the MAD calculated directly from the observed experimental data, $T(y)$. 
+The light blue histogram displays the distribution of MAD, $T(y_{\text{rep}})$, calculated from simulated datasets drawn from the posterior predictive distribution of the model. 
+The alignment of the observed MAD values within the main mass of the simulated distributions across treatments indicates that the models adequately capture the variance present in the physiological responses. 
+Notably, in row B at 4&deg;C, the observed MAD of absolute zero, resulting from complete photoinhibition, is accurately reproduced by the zero-inflated model architecture.
+The zero-inflation rate drives the large variations observed, since there is a large spike at zero.
+:::
 
+:::{#fig-mean}
 ```{r}
-data3 = data3 |> 
-  mutate(statmean = map(fullout, \(x) {
-    pp_check(x, type = "stat", stat = "mean", ndraws = 1000)
-  })) 
+p0200_4 + p1000_4 + plot_layout(ncol = 1) + plot_annotation(tag_levels = 'A')
 
-plots = data3|> pull(statmean)
-plabels = data3 |> 
-  mutate(l = str_glue("({LETTERS[seq_along(PAR)]}) {PAR} &mu;mol photons m^-2^ s^-1^ {Temp}&deg;C")) |> pull(l)
-plabel = str_flatten_comma(plabels, last = ", and ")
-wrap_plots(plots) + plot_annotation(tag_levels = 'A')
 ```
 
-Fig. C. The posterior predictive check of the mean indicated that the mean of the posterior predictions were modeled well for all of the 
-analyzed data; `{r} plabel`.
-The model captures the mean of the data, since the observations ($T(y)$) are contained within the distribution of the posterior predictions $T(y_{rep})$. 
+Posterior Predictive Check (PPC) of Mean Effective Quantum Yield.
+This plots illustrates a summary-statistic-based posterior predictive check, evaluating the ability of the model to reproduce the expected value (mean) of the observed data. 
+The top row (A) displays the performance of the low-light model, and the bottom row (B) displays the high-light zero-inflated model. 
+Columns indicate the temperature treatments: 4&deg;C, 16&deg;C, and 28&deg;C. 
+In each panel, the solid dark blue vertical line represents the mean calculated directly from the observed experimental data, $T(y)$. 
+The light blue histogram displays the distribution of means, $T(y_{\text{rep}})$, calculated from simulated datasets drawn from the posterior predictive distribution of the model. 
+The consistent alignment of the observed means within the main mass of the simulated distributions across all treatments indicates that both models adequately capture the overall expected values of the physiological responses. 
+The wider dispersion of the simulated means in row B, particularly under the 4&deg;C treatment, visually reflects the increased predictive variance inherent in the zero-inflated mixture model, as the simulated presence or absence of structural zeros trial-to-trial heavily influences the calculated mean of each replicated dataset.
+:::
+
+:::{#fig-sd}
+```{r}
+p0200_5 + p1000_5 + plot_layout(ncol = 1) + plot_annotation(tag_levels = 'A')
+
+```
+
+Posterior Predictive Check (PPC) of Standard Deviation.
+This plots illustrates a summary-statistic-based posterior predictive check, evaluating the ability of the model to reproduce the standard deviation (sd) of the observed data. 
+The top row (A) displays the performance of the low-light model, and the bottom row (B) displays the high-light zero-inflated model. 
+Columns indicate the temperature treatments: 4&deg;C, 16&deg;C, and 28&deg;C. 
+In each panel, the solid dark blue vertical line represents the standard deviation calculated directly from the observed experimental data, $T(y)$. 
+The light blue histogram displays the distribution of standard deviations, $T(y_{\text{rep}})$, calculated from simulated datasets drawn from the posterior predictive distribution of the model. 
+The consistent alignment of the observed standard deviations within the main mass of the simulated distributions across all treatments indicates that both models adequately capture the variance of the physiological responses. 
+Similar to the mean summary statistic, the broader dispersion of the simulated standard deviations in row B reflects the additional trial-to-trial variance naturally introduced by the zero-inflated mixture modeling process.
+:::
+
+
+

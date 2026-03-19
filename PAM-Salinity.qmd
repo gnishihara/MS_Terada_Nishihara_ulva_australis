@@ -29,6 +29,34 @@ format:
     css: custom.css
 ---
 
+## Methods
+To assess the interactive effects of salinity and exposure duration on the effective quantum yield, we fit a Bayesian distributional Generalized Additive Model (GAM). 
+Since the effective quantum yield data ($y$) are strictly bounded as proportions between 0 and 1, and often contain exact zero values representing complete photosynthetic inhibition or mortality under severe stress, we utilized a zero-inflated beta observation family. 
+To thoroughly capture the experimental dynamics, we applied a distributional modeling framework where the mean ($\mu$) and precision ($\phi$) were simultaneously modeled using their own linear predictors (Eq. @eq-model).
+For both distributional parameters ($\mu$ and $\phi$), the predictors included the parametric population-level effect of time (Days: a categorical factor with four levels: D1, D3, D5, and D7) and a non-linear effect of salinity. 
+Salinity was modeled using penalized B-splines. 
+To account for the shifting thermal response curves over prolonged exposure, we included a factor-smooth interaction between salinity and Days. 
+This formulation allowed the shape of the salinity response curve to vary dynamically across each measurement day. 
+Basis dimensions for all smooths were restricted to 4 to prevent overfitting the thermal performance curves while retaining sufficient flexibility to model non-linear physiological responses. 
+
+$$
+\begin{aligned}
+y          &\sim \text{Beta}(\mu, \phi) \\
+logit(\mu) &= \alpha_{\mu} + \beta_{\mu} D + f_{\mu}(x) + f_{\mu d}(x) \\
+logit(\pi) &= \alpha_{\pi} + \beta_{\pi} D + f_{\pi}(x) + f_{\pi d}(x) \\
+\end{aligned}
+$$
+The $\alpha$ coefficients are the global intercepts, $\beta$ is the categorical effect for measurement day ($D$).
+There are two smoothes in the model where $f(x)$ is the global smooth function for salinity and $f_d(x)$ is a factor-smooth interaction for each day.
+
+Weakly informative priors were assigned to the parameters of the model.
+Intercept priors were defined as a Gaussian distribution with a location and scale of 1 for the mean sub-model 
+and a Gaussian distribution with a location of 4 and a scale of 1.2 for the precision sub-model.
+Population-level coefficients (Days) were assigned a Gaussian distribution with a location of zero and a scale of one across all distributional parameters, 
+and the standard deviations of the smooth functions were regularized using an exponential prior with a rate of one. 
+
+
+
 ```{r}
 #| include: false
 library(tidyverse)
@@ -43,13 +71,11 @@ library(gt)
 library(gnnlab)
 library(utils)
 library(readxl)
-```
+library(future)
 
-```{r}
-#| include: false
-font_paths("BIZUD")
-font_add(regular = "BIZ-UDGothicR.ttc", family = "ns")
-# font_add_google("Noto Sans", family = "ns")
+
+# font_add(regular = "BIZ-UDGothicR.ttc", family = "ns")
+font_add_google("Noto Sans", family = "ns")
 theme_pubr(10, "ns", border = TRUE) |> set_theme()
 theme_pubr() |> 
   replace_theme(
@@ -62,10 +88,7 @@ showtext_auto()
 folder = "~/Dropbox/MS_Terada_Greg/"
 folder = "./Data/"
 fnames = dir(folder, recursive = TRUE)
-```
 
-
-```{r}
 ftext = "salinity"
 fname = str_c(folder, str_subset(fnames, ftext)) 
 esheets = excel_sheets(fname)
@@ -83,6 +106,8 @@ data = tibble(fname, esheets) |>
   mutate(days = as.numeric(Days))
 
 ```
+
+## Results
 
 ```{r}
 xlabel = "Salinity (PSU)"
@@ -144,90 +169,436 @@ The points are jittered horizontally for clarity (n = 10).
 
 
 ```{r}
+nullmodel = 
+  bf(value ~ s(PSU, k = 5, bs = "ps"),
+     phi  ~  s(PSU, k = 5, bs = "ps")) +
+  Beta()
+
+fullmodel = 
+  bf(value ~ Days + s(PSU, k = 5, bs = "ps") + s(PSU, Days, k = 5, bs = "fs"),
+     phi  ~  Days + s(PSU, k = 5, bs = "ps") + s(PSU, Days, k = 5, bs = "fs")) +
+  Beta()
+
+data2 = data
+
+nullpriors = c(
+  prior(normal(1, 1),     class = Intercept),
+  prior(exponential(1),   class = sds),
+  prior(normal(4, 1.2),    dpar = phi, class = Intercept),
+  prior(exponential(1),    dpar = phi, class = sds)
+)
+
+priors = c(
+  prior(normal(1, 1), class = Intercept),
+  prior(normal(0, 1), class = b),
+  prior(exponential(1), class = sds),
+  prior(normal(4, 1.2),    class = Intercept, dpar = phi),
+  prior(normal(0, 1),      class = b,         dpar = phi),
+  prior(exponential(1),    class = sds,       dpar = phi),
+  NULL
+)
+
+
 cores = chains = 5
 seed = 2026
-warmup = 1000
-iterations = warmup + 1000
+warmup = 4000
+iterations = warmup + 10000
 file_refit = "always"
-control = list(adapt_delta = 0.9, max_treedepth = 20)
-filename_null = "pam-salinity-null-model"
-filename_full = "pam-salinity-full-model"
-output_null = "pam-salinity-null"
-output_full = "pam-salinity-full"
+control = list(adapt_delta = 0.995, max_treedepth = 20)
+filename_full = "pam-salinity-full-gam"
+filename_null = "pam-salinity-null-gam"
 
-if(!dir.exists(output_full)) dir.create(output_full)
 
-fullmodel = bf(
-  value ~ t2(PSU, days, k = c(4,4), bs = c("ps", "re")),
-  phi ~ s(PSU, k = 4, bs = "ps")
-  ) +   Beta()
+runme = F
 
-get_prior(fullmodel, data)
-data$PSU |> unique() |> length()
+if(runme) {
+  
+  file.remove(str_c(filename_null, ".rds"))
+  file.exists(str_c(filename_null, ".rds"))
+  file.remove(str_c(filename_full, ".rds"))
+  file.exists(str_c(filename_full, ".rds"))
+  
+  workers = rep("mimir", 2)
+  if(!file.exists(str_c(filename_null, ".rds"))) {
+    plan(cluster, workers = workers)
+    futurenull =
+      future({
+        
+        bout = 
+          brm(
+            nullmodel,
+            data = data2,
+            prior = nullpriors,
+            chains = chains,
+            cores = cores,
+            seed = seed,
+            iter = iterations,
+            warmup = warmup,
+            refresh = 0,
+            backend = "cmdstanr",
+            control = control,
+            save_pars = save_pars(all = TRUE)
+          )
+        bout = add_criterion(bout, criterion = c("loo"), reloo = TRUE, overwrite = TRUE, cores = 5)
+        bout
+        
+      }, seed = seed)
+  }
+  
+  if(!file.exists(str_c(filename_full, ".rds"))) {
+    # plan(cluster, workers = workers)
+    futurefull =
+      future({
+        bout = 
+          brm(
+            fullmodel,
+            data = data2,
+            prior = priors,
+            chains = chains,
+            cores = cores,
+            seed = seed,
+            iter = iterations,
+            warmup = warmup,
+            refresh = 0,
+            backend = "cmdstanr",
+            control = control,
+            save_pars = save_pars(all = TRUE)
+          )
+        bout = add_criterion(bout, criterion = c("loo"), reloo = TRUE, overwrite = TRUE, cores = 5)
+        bout
+      }, seed = seed)
+  }
+  
+  while(! (resolved(futurefull) & resolved(futurenull))) {
+    message("Sampling in progress.")
+    Sys.sleep(1)
+  }
+  
+  bout_null = value(futurenull)
+  bout_null |> write_rds(str_c(filename_null, ".rds"))
+  bout_full = value(futurefull)
+  bout_full |> write_rds(str_c(filename_full, ".rds"))
+  plan(sequential); gc()
+}
 
-priors_full = c(
-  prior(normal(0, 2), class = Intercept),
-  prior(exponential(1), class = sds),
-  prior(normal(4, 2), class = Intercept, dpar = phi),
-  prior(normal(0, 2), class = b,         dpar = phi),
-  prior(exponential(1), class = sds,     dpar = phi)
-)
+bout_null = read_rds(str_c(filename_null, ".rds"))
+bout_full = read_rds(str_c(filename_full, ".rds"))
+
+p1a = pp_check(bout_full, type = "dens_overlay_grouped",  group = "Days", ndraws = 50)
+p2a = pp_check(bout_full, type = "stat_grouped", stat = c("median"), ndraws = 500, binwidth = 0.001, group = "Days")
+p3a = pp_check(bout_full, type = "stat_grouped", stat = c("mean"),   ndraws = 500, binwidth = 0.001, group = "Days")
+p4a = pp_check(bout_full, type = "stat_grouped", stat = c("mad"),    ndraws = 500, binwidth = 0.001, group = "Days")
+p5a = pp_check(bout_full, type = "stat_grouped", stat = c("sd"),     ndraws = 500, binwidth = 0.001, group = "Days")
+
+pout = p1a / p2a / p3a / p4a / p5a 
+
+pdfname = here::here("Plots/PAM-Salinity-GAM-diagnostics.pdf")
+pngname = str_replace(pdfname, "pdf", "png")
+save_plot(pdfname, plot = pout, width = 80*3, height = 80*2)
+image_read_pdf(pdfname) |> image_write(pngname)
+```
+
+```{r}
+#| cache: true
+pdata_df = data2 |> expand(Temp = seq(4, 36, by = 1), Days, individual = 100) 
+pdata_df = pdata_df |> add_epred_draws(bout_full, allow_new_levels = TRUE) |> mean_hdci(.epred)
 ```
 
 
 ```{r}
-#| label: fullmodel
+ndata = data2 |> expand(Days, Temp = seq(4, 36, by = 1))
+pdata = ndata |> add_epred_draws(bout_full, re_formula = NA) |> ungroup()
 
-bout_full =  brm(
-    fullmodel,
-    data = data,
-    prior = priors_full,
-    chains = chains,
-    cores = cores,
-    seed = seed,
-    iter = iterations,
-    warmup = warmup,
-    refresh = 20,
-    file = filename_full,
-    file_refit = file_refit,
-    backend = "cmdstanr",
-    control = control,
-    output_dir = output_full,
-    save_pars = save_pars(all = TRUE)
+pdata = 
+  pdata |>
+  select(Temp, Days, .draw, .epred) |> 
+  pivot_wider(names_from = Days, values_from = .epred) |> 
+  mutate(
+    difference_D3D1 = D3 - D1,
+    difference_D5D1 = D5 - D1,
+    difference_D7D1 = D7 - D1,
+    difference_D5D3 = D5 - D3,
+    difference_D7D3 = D7 - D3,
+    difference_D7D5 = D7 - D5
+  ) |> 
+  pivot_longer(
+    cols = starts_with("difference"),
+    names_to = "Comparison",
+    values_to = "Difference"
+  ) 
+
+pd_data = 
+  pdata |> 
+  group_by(Comparison) |> 
+  mutate(median = median(Difference),
+         N = length(Difference)) |> 
+  mutate(pd = sign(Difference) * sign(median)) |> 
+  ungroup() |> 
+  group_by(Temp, Comparison) |> 
+  reframe(N = length(pd),
+          pd_pos = sum(pd > 0),
+          pd_neg = sum(pd < 0)
+          ) |> 
+  mutate(
+    pd_pos = pd_pos / N,
+    pd_neg = pd_neg / N
+    ) |> 
+  rowwise() |> 
+  mutate(pd = max(pd_pos, pd_neg))
+
+med_data  = pdata |> group_by(Temp, Comparison) |> median_hdci(Difference)
+mean_data = pdata |> group_by(Temp, Comparison) |> mean_hdci(Difference)
+
+lvls = med_data |> pull(Comparison) |> unique() 
+lvls = lvls[c(1, 2, 4, 3, 5, 6)]
+lbls = lvls |> str_remove_all("difference_") 
+
+lbls = str_c(str_extract(lbls, "^D[0-9]")," - ", str_extract(lbls, "D[0-9]$"))
+lbls = lbls |> str_replace_all("D", "Day ")
+
+med_data = med_data   |> mutate(Comparison = factor(Comparison, levels = lvls, labels = lbls))
+pd_data = pd_data     |>  mutate(Comparison = factor(Comparison, levels = lvls, labels = lbls))
+mean_data = mean_data |> mutate(Comparison = factor(Comparison, levels = lvls, labels = lbls))
+
+
+
+med_data = full_join(med_data, pd_data, by = c("Temp", "Comparison"))
+
+# Maps a vector of values from [0, 1] to [-0.3, 0.3]
+map_to_range <- function(x, high = 0.3) {
+  # Ensures any values slightly outside 0-1 (e.g., due to floating point math) are capped
+  x_clamped <- pmin(pmax(x, 0.5), 1) 
+  
+  # Apply the linear transformation
+  mapped_value <- -high + (2 * high * x_clamped)
+  
+  return(mapped_value)
+}
+
+med_data = med_data |> 
+  mutate(pd2 = map_to_range(pd, high = 0.6)) |> 
+  mutate(pdlow = -pd2,
+         pdhigh = pd2) 
+
+ce_df = conditional_effects(bout_full)
+```
+
+```{r}
+xlabel1 = "Salinity (&deg;C)"
+ylabel1 = "Effective quantum yield"
+ylabel2 = "Difference"
+
+label1df = data2 |> expand(Days, x = -Inf, y = Inf) |> 
+  mutate(
+    l = str_glue("({LETTERS[seq_along(Days)]}) {str_replace(Days, 'D', 'Days ')}")
   )
 
-bout_full
+label2df = med_data |> expand(Comparison, x = -Inf, y = Inf) |> 
+  mutate(
+    l = str_glue("({LETTERS[4+seq_along(Comparison)]}) {Comparison}")
+  )
+
+
+p1 =  ggplot() + 
+    geom_richtext(aes(x = x, y = y, label = l),
+                data = label1df,
+                vjust = 1, hjust = 0,
+                color = "transparent",
+                fill = "transparent",
+                text.color = "black",
+                family = "ns",
+                size = 3
+  ) +
+  geom_ribbon(aes(x = Temp, ymin = lower__, ymax = upper__, fill = Days), data = ce_df$`Temp:Days`, alpha = 0.5) +
+  geom_line(aes(x = Temp, y = estimate__, color = Days), data = ce_df$`Temp:Days`) +
+  geom_point(aes(x = Temp, y = value, fill = Days), data = data, 
+             stroke = NA,
+             position = position_jitter(width = 0.5, height = 0, seed = 2026), 
+             alpha = 0.8,
+             size = 2,
+             shape = 21)+
+  scale_color_viridis_d(aesthetics = c("fill", "color"), end = 0.8, labels = c("1 day", "3 days", "5 days", "7 days")) +
+  scale_y_continuous(ylabel1, limits = c(0, 1), breaks = seq(0, 1, by = 0.2)) +
+  scale_x_continuous(xlabel1, limits = c(4, 36), breaks = seq(4, 36, by = 8)) +
+  guides(color = "none", fill = "none") +
+  facet_wrap(vars(Days), nrow = 1) +
+  theme(
+    legend.byrow = TRUE,
+    legend.title = element_blank(),
+    legend.text = element_markdown(size = rel(0.8)),
+    legend.key.size = unit(3, "mm"),
+    legend.position = "inside",
+    legend.position.inside = c(1, 1),
+    legend.justification = c(1, 1),
+    legend.background = element_blank(),
+    legend.margin = margin(1, 4, 0, 0, unit = "mm"),
+    legend.spacing = unit(0, "mm"),
+    strip.background = element_blank(),
+    strip.text = element_blank(),
+    axis.title.x = element_blank()
+  )
+
+p2 = ggplot(med_data) +
+  geom_ribbon(aes(x = Temp, ymin = pdlow, ymax = pdhigh), alpha = 0.5, fill = "blue") +
+  geom_richtext(aes(x = x, y = y, label = l),
+                data = label2df,
+                vjust = 1, hjust = 0,
+                color = "transparent",
+                fill = "transparent",
+                text.color = "black",
+                family = "ns",
+                size = 3
+  ) +
+  geom_ribbon(aes(x = Temp, ymin = .lower, ymax = .upper), 
+              alpha = 0.8) +
+  geom_line(aes(x = Temp, y = Difference)) +
+  geom_hline(yintercept = c(-0.1 * pi/sqrt(3), 0.1 * pi / sqrt(3)),linetype = "dashed", alpha = 0.5) +
+  geom_hline(yintercept = c(c(-0.60, 0.60) * 0.975), linetype = "83", color = "blue", alpha = 0.5) +
+  scale_x_continuous(xlabel1,
+                     limits = c(4, 36),
+                     breaks = seq(4, 36,   by = 8)) +
+  scale_y_continuous(ylabel2, limits = c(-0.6, 0.6),
+                     breaks = seq(-0.6, 0.6, length = 5)) +
+  facet_wrap(vars(Comparison), ncol = 3) +
+  theme(
+    legend.byrow = TRUE,
+    legend.title = element_blank(),
+    legend.text = element_markdown(size = rel(0.8)),
+    legend.key.size = unit(5, "mm"),
+    legend.position = "inside",
+    legend.position.inside = c(1, 0),
+    legend.justification = c(1, 0),
+    legend.background = element_blank(),
+    legend.margin = margin(0, 4, 0, 0, unit = "mm"),
+    legend.spacing = unit(0, "mm"),
+    strip.background = element_blank(),
+    strip.text = element_blank()
+  )
+  
+  
+  
+pout = p1 + p2 + plot_layout(ncol = 1)
+pdfname = here::here("Plots/PAM-Salinity-figure.pdf")
+pngname = str_replace(pdfname, "pdf", "png")
+ggsave(pdfname, plot = pout, width = 2*80, height = 1.5*80, units = "mm")
+image_read_pdf(pdfname) |> image_write(pngname)
+
+
 ```
+
+::: {#fig-result}
+
+```{r}
+image_read(str_replace(pdfname, "pdf", "png"))
+```
+
+Non-linear response of the effective quantum yield of photosystem II (&Delta;Fv/Fm&prime;) to salinity (A - D) across exposure periods. 
+The panels illustrate the trajectory of the effective quantum yield after (A) 1 day, (B) 3 days, (C) 5 days, and (D) 7 days of exposure. 
+The differences between the mean effective quantum yields between (E) 3 and 1 days of exposure, (F) 5 and 1 days of exposure, (G) 7 and 1 days of exposure,
+(H) 5 and 3 days of exposure, (I) 5 and 7 days of exposure, and (J) 7 and 5 days of exposure.
+The solid lines indicates the expected values of the effective quantum yield in A to D and the differences between the expected values on the logit-scale for panels E to J.
+The grey shaded regions indicates the 95% highest density credible intervals and the blue region indicates the probability of direction.
+The black short-dashes indicate the region of practical significance (ROPE) of the differences and the blue long-dashes indicates the region where the probability of direction is less than 95%.
+Observations are plotted as points, with distinct symbols indicating individuals. The symbols are jittered for clarity.
+:::
 
 
 ```{r}
-draws = data |> 
-  expand(Days, PSU = seq(min(PSU), max(PSU), length = 21)) |> 
-  mutate(days = as.numeric(Days)) |> 
-  add_epred_draws(bout_full, ndraws = 100, value = ".epred")
+#| include: false
+boutloo = loo_compare(bout_null, bout_full) |> as_tibble(rownames = "model")
 
-draws |> group_by(.draw, PSU) |> 
-  filter(.epred < 0.5) |> 
-  reframe(days_to_fail = min(days)) |> 
-  group_by(PSU) |> 
-  reframe(across(days_to_fail, list(m = mean, med = median)))
+ce_df$`Temp:Days` |> group_by(Days) |> mutate(med = max(estimate__)) |> filter(estimate__ >= (med/2)) |> slice_min(Temp)
+
+
+med_data |> filter(abs(Difference) > (0.1 * pi / sqrt(3))) |> group_by(Comparison) |> slice_min(Temp)
+
+med_data |> filter(Temp > 30) |> filter(pd >= 0.975) |> group_by(Comparison) |> slice_min(Temp)
+med_data |> filter(Temp > 30) |> filter(pd >= 0.975) |> group_by(Comparison) |> slice_max(Temp)
+
 ```
+
+
+::: {#fig-result-1}
 
 ```{r}
-draws |> 
-  group_by(Days, PSU) |> 
-  mean_hdci(.epred) |> 
-  ggplot() +
-  geom_ribbon(aes(x = PSU, ymin = .lower, ymax = .upper, fill = Days), alpha = 0.5) +
-  geom_line(aes(x = PSU, y = .epred, color = Days)) +
-  stat_summary(aes(x = PSU, y = value, color = Days), 
-               data = data) +
-  facet_wrap(vars(Days))
+pdfname = here::here("Plots/PAM-salinity-figure-simple.pdf")
+pngname = str_replace(pdfname, "pdf", "png")
+ggsave(pdfname, plot = p1, width = 2*80, height = 1*80, units = "mm")
+image_read_pdf(pdfname) |> image_write(pngname)
+
+
+image_read(str_replace(pdfname, "pdf", "png"))
 ```
 
+:::
 
+
+
+
+## Model diagnostic plots
+
+
+:::{#fig-overlay}
 ```{r}
-# This will generate a 2D heat map (contour plot)
-# plot(conditional_effects(bout_full, effects = "PSU:days", surface = TRUE, resolution = 50), stype = "raster")
+p1a
 ```
+
+Bayesian Posterior Predictive Check (PPC) Density Overlays for Effective Quantum Yield Models.
+
+The plots represent a visual assessment of model fit (density overlays) comparing the observed distribution of effective quantum yield data to the data predicted by the fitted Bayesian models. 
+The thick dark blue line ($y$) represents the kernel density estimation of the observed experimental data. 
+The multiple thin light blue lines ($y_{\text{rep}}$) represent density estimations calculated from 50 independent datasets simulated (replicated) from the posterior predictive distributions of the model. 
+High congruence between the thick and thin lines signifies an adequate model fit.
+:::
+
+
+:::{#fig-median}
+```{r}
+p2a
+```
+
+Posterior Predictive Check (PPC) of Median Effective Quantum Yield.
+This plots illustrates a summary-statistic-based posterior predictive check, evaluating the ability of the model to reproduce the central tendency (median) of the observed data. 
+The solid dark blue vertical line represents the median calculated directly from the observed experimental data, $T(y)$. 
+The light blue histogram displays the distribution of medians, $T(y_{\text{rep}})$, calculated from simulated datasets drawn from the posterior predictive distribution of the model. 
+The consistent alignment of the observed medians within the main mass of the simulated distributions across treatments indicates that both models adequately capture the central tendency of the quantum yield responses.
+:::
+
+:::{#fig-mad}
+```{r}
+p3a
+```
+
+Posterior Predictive Check (PPC) of Median Absolute Deviation.
+This plots illustrates a summary-statistic-based posterior predictive check, evaluating the ability of the model to capture the dispersion of the observed data by using the median absolute deviation (MAD). 
+The solid dark blue vertical line represents the MAD calculated directly from the observed experimental data, $T(y)$. 
+The light blue histogram displays the distribution of MAD, $T(y_{\text{rep}})$, calculated from simulated datasets drawn from the posterior predictive distribution of the model. 
+The alignment of the observed MAD values within the main mass of the simulated distributions across treatments indicates that the models adequately capture the variance present in the physiological responses. 
+The zero-inflation rate drives the large variations observed, since there is a large spike at zero.
+:::
+
+:::{#fig-mean}
+```{r}
+p4a
+```
+
+Posterior Predictive Check (PPC) of Mean Effective Quantum Yield.
+This plots illustrates a summary-statistic-based posterior predictive check, evaluating the ability of the model to reproduce the expected value (mean) of the observed data. 
+The solid dark blue vertical line represents the mean calculated directly from the observed experimental data, $T(y)$. 
+The light blue histogram displays the distribution of means, $T(y_{\text{rep}})$, calculated from simulated datasets drawn from the posterior predictive distribution of the model. 
+The consistent alignment of the observed means within the main mass of the simulated distributions across all treatments indicates that both models adequately capture the overall expected values of the physiological responses. 
+:::
+
+:::{#fig-sd}
+```{r}
+p5a
+```
+
+Posterior Predictive Check (PPC) of Standard Deviation.
+This plots illustrates a summary-statistic-based posterior predictive check, evaluating the ability of the model to reproduce the standard deviation (sd) of the observed data. 
+The solid dark blue vertical line represents the standard deviation calculated directly from the observed experimental data, $T(y)$. 
+The light blue histogram displays the distribution of standard deviations, $T(y_{\text{rep}})$, calculated from simulated datasets drawn from the posterior predictive distribution of the model. 
+The consistent alignment of the observed standard deviations within the main mass of the simulated distributions across all treatments indicates that both models adequately capture the variance of the physiological responses. 
+:::
+
 

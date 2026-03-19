@@ -10,11 +10,64 @@ author:
   - name: Gregory N. Nishihara
   - name: Ryuta Terada
 execute: 
+  freeze: true
+  cache: true
   echo: false
   message: false
   warning: false
-  cache: true
+editor: 
+  markdown: 
+    wrap: 72
+bibliography: references.bib
+format:
+  html:
+    grid:
+      margin-width: 200px
+      sidebar-width: 200px
+      body-width: 900px
+    tbl-cap-location: top
+    css: custom.css
 ---
+
+## Methods
+
+
+
+To quantify the effect of time and relative water content on the effective quantum yield, we employed a Generalized Additive Model and fit the model using a Bayesian approach.
+Effective quantum yield is the proportion of absorbed light used in photosynthesis by PSII, and operationally range from 0 to 1.
+Therefore, a zero-inflated beta distribution was used to model the error structure of the model, which accommodates the 0 to 1 open interval and
+when the effective quantum yields drop to zero (Eq. #eq-model).
+The expected effective quantum yield ($\mu$) is a linear function of time or relative water content with the hydration state (i.e., desiccation, 30-min rehydration, and 1-day rehydration) as factor variables (@eq-model).
+
+
+$$
+\begin{aligned}
+y &\sim \text{Zero-Inflated-Beta}(\mu, \phi, \pi)\\
+logit(\mu) &= \alpha + \beta_S + f(x) + g_S(x) + u_{j}+ u_{xj} \\
+logit(\pi) &= \alpha_{zi} + h(x)\\
+\end{aligned}
+$${#eq-model}
+
+The observation $y$ is the effective quantum yield and the
+distribution is parameterized by the mean ($\mu$), precision ($\phi$), and zero-inflation probability ($\pi$).
+The coefficients $\alpha$ and $\alpha_{zi}$ are the global intercepts for the mean and zero-inflation sub-models, respectively and $\beta_S$ is the parametric effect of the hydration state ($S$).
+$f(x)$ is the global penalized B-spline for the covariate $x$ and $g_S(x)$ is a penalized P-spline for the state-specific smooths.
+The basis dimension is 8 for both smoothes when the covariate is time and the basis dimension is 10 for both smoothes when the covatiate is relative water content.
+A first-derivative penalty is applied to the state-specific smoothes.
+$g(x)$ is a penalized B-spline for the zero-inflation component and has 4 basis functions regardless of the covariate.
+The $u_j$ and $u_{xj}$ coefficients are individual-level random intercepts and slopes for the covariate, respectively.
+The individual-level random effects are modeled with a multivariate normal distribution.
+The smoothes of the penalized B-splines are regularized by the standard coefficients of their coefficients (i.e., $\sigma_f$, $\sigma_g$, and $\sigma_h$). 
+The null model is similar to @eq-model but does not include the hydration state.
+
+The prior distributions used for this model were weakly informative priors.
+The coefficients $\alpha$, $\alpha_{zi}$, and $\beta_S$ were assigned a Gaussian prior with a location of zero and a scale of 1.5.
+The standard deviations for the random effects and the splines were assigned an exponential prior with a rate of 2, however the standard deviation for $\sigma_g$ was assigned
+a Gaussian prior with a location of zero and scale of one that was truncated to positive values.
+The precision ($\phi$) was assigned an exponential prior with a rate of one.
+
+
+## Results
 
 ```{r}
 #| include: false
@@ -33,13 +86,8 @@ library(readxl)
 library(future)
 library(bayestestR)
 
-```
-
-```{r}
-#| include: false
 font_add_google("Noto Sans", family = "ns")
-theme_pubr(10, "ns", border = TRUE) |> 
-  set_theme()
+theme_pubr(10, "ns", border = TRUE) |> set_theme()
 theme_pubr() |> 
   replace_theme(
     axis.line.x = element_blank(),
@@ -55,10 +103,7 @@ fnames = dir(folder, recursive = TRUE)
 svscaler = function(x, n) {
   (x * (n - 1) + 0.5) / n
 }
-```
 
-
-```{r}
 ftext = "1st"
 fname = str_c(folder, str_subset(fnames, ftext)) 
 data = read_xlsx(fname, range = "A1:P170") |> drop_na()
@@ -100,9 +145,64 @@ data2 =
   reframe(
     value_sd = sd(value),
     value_m = mean(value),
+    value_n = length(value),
+    value_se = gnnlab::se(value),
     awc = first(awc),
     sawc = first(sawc)) 
 ```
+
+
+
+
+:::{#tbl-observation-summary}
+
+```{r}
+data2 |> 
+  rename(value = value_m) |> 
+  group_by(state, minutes) |>
+  reframe(across(c(value, awc), list(m = mean, sd = sd, n = length, se = se))) |> 
+  gt() |> 
+  cols_label(
+    state = "Hydration state",
+    minutes = "Time",
+    value_m = "Mean",
+    value_sd = "Std. Dev.",
+    value_se = "Std. Error",
+    value_n = "N",
+    awc_m = "Mean",
+    awc_sd = "Std. Dev.",
+    awc_se = "Std. Error",
+    awc_n = "N"
+  )  |> 
+  fmt_number(columns = matches("value_"), decimals = 2) |> 
+  fmt_number(columns = matches("awc_"), decimals = 1) |> 
+  cols_align(align = "right",
+             columns = !matches("state")) |>
+  cols_align(align = "left",
+             columns = matches("state")) |>
+  tab_spanner(
+    label = "Effective quantum yield",
+    columns = matches("value_")) |> 
+  tab_spanner(
+    label = "% Relative water content",
+    columns = matches("awc_")) |> 
+  tab_footnote(
+    footnote = html("Minutes"),
+    locations = cells_column_labels(columns = minutes)
+  ) |>
+  opt_footnote_spec(spec_ref = "^xb", spec_ftr = "(x)") |> 
+  tab_style(
+    style = cell_text(align = "left"),
+    locations = cells_footnotes()
+  ) 
+```
+
+The mean, standard deviation (Std. Dev.), and standard error (Std. Err.) of the effective quantum yield (&Delta;Fv/Fm&prime;) observations.
+The light to dark ratio is 12L12D and the light was set to 50 PAR (&mu;mol photons m<sup>-2</sup> s<sup>-1</sup>).
+
+:::
+
+
 
 
 ```{r}
@@ -117,7 +217,7 @@ labeldf = data |> expand(state, x = min(minutes), y = 1) |>
     l = str_glue("({LETTERS[seq_along(state)]}) {state}")
   )
 
-p1 = ggplot(data2) + 
+p1_time = ggplot(data2) + 
   geom_point(aes(x = minutes, y = value_m), 
              shape = 21,
              fill = "black",
@@ -140,11 +240,9 @@ p1 = ggplot(data2) +
     strip.background = element_blank()
   )
 
-pdfname = "PAM-Desiccation-minutes-plot.pdf"
-save_plot(pdfname, plot = p1, width = 80, height = 80*1.5)
+pdfname = here::here("Plots/PAM-Desiccation-minutes-plot.pdf")
+save_plot(pdfname, plot = p1_time, width = 80, height = 80*1.5)
 ```
-
-
 
 ::: {#fig-pam-desiccation-01}
 
@@ -221,7 +319,6 @@ The points are jittered horizontally for clarity (n = 50).
 
 :::
 
-Smithson, M., & Verkuilen, J. (2006). A better lemon squeezer? Maximum-likelihood regression with beta-distributed dependent variables. Psychological Methods, 11(1), 54–71. https://doi.org/10.1037/1082-989X.11.1.54
 
 ```{r}
 data2 = 
@@ -233,7 +330,7 @@ data2 =
     awc = first(awc)) |> 
   select(state, nstate, minutes, awc, individual, value_m, value_sd) |>
   mutate(
-    nstate = factor(nstate, labels = c("D", "Thirty", "Day"), ordered = TRUE),
+    nstate = factor(nstate, labels = c("D", "Thirty", "Day")),
     individual = factor(individual)) 
 
 data2 = 
@@ -247,172 +344,458 @@ data2 = data2 |>
 
 data2 = data2 |> 
   mutate(y = (value_m * (n() - 1) + 0.5)/n(),
-         x = awc / 100)
+         x = awc / 100,
+         tau = minutes / 180)
 
 data2 = data2 |> filter(!outlier)
 
 
-data2 |> 
-  ggplot() +
-  geom_point(aes(x = x, y = y,color = individual)) + 
-  facet_grid(vars(nstate), vars(individual))
-
 ```
 
 
-```{r}
-cores = chains = 5
-seed = 2026
-warmup = 4000
-iterations = warmup + 10000
-file_refit = "never"
-control = list(adapt_delta = 0.995, max_treedepth = 20)
-filename_full = "pam-desiccation-full-model"
-
-file.remove(str_c(filename_full, ".rds"))
-
-library(mgcv)
-library(gratia)
-
-gam01 = gam(
-  y ~ s(x, bs = "ps") + s(x, by = nstate, bs = "ps", m = 1) + s(id, bs = "re"),
-  data = data2, family = betar(link = "logit")
-)
-
-draw(gam01)
-appraise(gam01)
-```
-
 
 ```{r}
+nullmodel = bf(
+  value_m ~ s(tau, k = 8, bs = "ps") + (1 + tau|individual),
+  zi ~ s(tau, bs = "ps", k = 4)
+) + zero_inflated_beta()
+
 fullmodel = bf(
-  y ~ nstate + s(x, bs = "ps") + s(x, by = nstate, bs = "ps", m = 1) + (1|individual)
-  ) + beta()
+  value_m ~ nstate + s(tau, k = 8, bs = "ps") + s(tau, k = 8, by = nstate, bs = "ps", m = 1) + (1  + tau|individual),
+  zi ~ s(tau, bs = "ps", k = 4)
+) + zero_inflated_beta()
 
 
-priors_full = c(
-  prior(normal(0, 1.5), class = Intercept),
-  prior(normal(0, 1.5), class = b),
-  prior(exponential(2), class = sd),
-  prior(exponential(2), class = sds),
-  # prior(normal(0, 1.5), dpar = zi, class = Intercept),
-  # prior(normal(0, 1.5), dpar = zi, class = b),
-  prior(gamma(0.01, 0.01), class = phi)
+priors = c(
+  prior(normal(0, 1.5),             class = Intercept),
+  prior(normal(0, 1.5),             class = b),
+  prior(exponential(2),             class = sd),
+  prior(exponential(2),             class = sds),
+  prior(normal(0, 1.5), dpar = zi,  class = Intercept),
+  prior(normal(0, 1.5), dpar = zi,  class = b),
+  prior(normal(0, 1),   dpar = zi,  class = sds),
+  prior(exponential(1),          class = phi)
 )
-# 
-# bout_full =
-#   brm(
-#     fullmodel,
-#     data = data2,
-#     prior = priors_full,
-#     chains = 5,
-#     cores = 5,
-#     seed = seed,
-#     iter = iterations,
-#     warmup = warmup,
-#     refresh = 20,
-#     file = filename_full,
-#     file_refit = file_refit,
-#     backend = "cmdstanr",
-#     control = list(adapt_delta = 0.95, max_treedepth = 20),
-#     save_pars = save_pars(all = TRUE)
-#   )
-# 
-# 
-# p1 = pp_check(bout_full, ndraws = 50, type = "dens_overlay_grouped", group = "state")
-# p2 = pp_check(bout_full, ndraws = 500, type = "stat_grouped", stat = "median", group = "state")
-# p3 = pp_check(bout_full, ndraws = 500, type = "stat_grouped", stat = "mad", group= "state")
-# p4 = pp_check(bout_full, ndraws = 500, type = "stat_grouped", stat = "mean", group= "state")
-# p5 = pp_check(bout_full, ndraws = 500, type = "stat_grouped", stat = "sd", group= "state")
-# 
-# p1 / p2 / p3 /p4 /p5
-```
-
-
-```{r}
-#| label: fullmodel
-
 
 cores = chains = 5
 seed = 2026
 warmup = 4000
 iterations = warmup + 10000
-file_refit = "never"
+file_refit = "always"
 control = list(adapt_delta = 0.995, max_treedepth = 20)
-filename_full = "pam-desiccation-full-model"
+filename_full = "pam-desiccation-full-taumodel"
+filename_null = "pam-desiccation-null-taumodel"
 
 
-file.remove(str_c(filename_full, ".rds"))
-file.exists(str_c(filename_full, ".rds"))
+runme = F
 
-if(!file.exists(str_c(filename_full, ".rds"))) {
-  plan(cluster, workers = "mimir")
-  futurefull = future({
-    brm(
-      fullmodel,
-      data = data2,
-      prior = priors_full,
-      chains = chains,
-      cores = cores,
-      seed = seed,
-      iter = iterations,
-      warmup = warmup,
-      refresh = 0,
-      backend = "cmdstanr",
-      control = control,
-      save_pars = save_pars(all = TRUE)
-    )
-  }, seed = seed)
+if(runme) {
   
-  z = 0
-  sleeptime = 5
-  while(!resolved(futurefull)) {
-    z0 = lubridate::now()
-    message("Model is still sampling... ", z0)
-    Sys.sleep(sleeptime) # Check every 10 seconds
-    z = z + sleeptime
+  file.remove(str_c(filename_null, ".rds"))
+  file.exists(str_c(filename_null, ".rds"))
+  file.remove(str_c(filename_full, ".rds"))
+  file.exists(str_c(filename_full, ".rds"))
+  
+  workers = rep("mimir", 2)
+  if(!file.exists(str_c(filename_null, ".rds"))) {
+    plan(cluster, workers = workers)
+    futurenull =
+      future({
+        
+        bout = 
+          brm(
+            nullmodel,
+            data = data2,
+            prior = priors,
+            chains = chains,
+            cores = cores,
+            seed = seed,
+            iter = iterations,
+            warmup = warmup,
+            refresh = 0,
+            backend = "cmdstanr",
+            control = control,
+            save_pars = save_pars(all = TRUE)
+          )
+        bout = add_criterion(bout, criterion = c("loo"), reloo = TRUE, overwrite = TRUE, cores = 5)
+        bout
+        
+      }, seed = seed)
   }
   
-  message("Done! You can now run: fit <- value(futurefull)\n", "Total time is: ", z/60, " minutes.")
+  if(!file.exists(str_c(filename_full, ".rds"))) {
+    # plan(cluster, workers = workers)
+    futurefull =
+      future({
+        bout = 
+          brm(
+            fullmodel,
+            data = data2,
+            prior = priors,
+            chains = chains,
+            cores = cores,
+            seed = seed,
+            iter = iterations,
+            warmup = warmup,
+            refresh = 0,
+            backend = "cmdstanr",
+            control = control,
+            save_pars = save_pars(all = TRUE)
+          )
+        bout = add_criterion(bout, criterion = c("loo"), reloo = TRUE, overwrite = TRUE, cores = 5)
+        bout
+      }, seed = seed)
+  }
+  
+  while(! (resolved(futurefull) & resolved(futurenull))) {
+    message("Sampling in progress.")
+    Sys.sleep(1)
+  }
+  
+  bouttau_null = value(futurenull)
+  bouttau_null |> write_rds(str_c(filename_null, ".rds"))
+  bouttau_full = value(futurefull)
+  bouttau_full |> write_rds(str_c(filename_full, ".rds"))
+  plan(sequential); gc()
+}
+
+bouttau_null = read_rds(str_c(filename_null, ".rds"))
+bouttau_full = read_rds(str_c(filename_full, ".rds"))
+
+p1a = pp_check(bouttau_full, type = "dens_overlay_grouped",  group = "nstate", ndraws = 50)
+p2a = pp_check(bouttau_full, type = "stat_grouped", stat = c("median"), ndraws = 500, binwidth = 0.001, group = "nstate")
+p3a = pp_check(bouttau_full, type = "stat_grouped", stat = c("mean"),   ndraws = 500, binwidth = 0.001, group = "nstate")
+p4a = pp_check(bouttau_full, type = "stat_grouped", stat = c("mad"),    ndraws = 500, binwidth = 0.001, group = "nstate")
+p5a = pp_check(bouttau_full, type = "stat_grouped", stat = c("sd"),     ndraws = 500, binwidth = 0.001, group = "nstate")
+
+# pout = p1a / p2a / p3a / p4a / p5a 
+# pdfname = here::here("Plots/PAM-Desiccation-tau-diagnostics.pdf")
+# pngname = str_replace(pdfname, "pdf", "png")
+# save_plot(pdfname, plot = pout, width = 80*3, height = 80*2)
+# image_read_pdf(pdfname) |> image_write(pngname)
+
+ntaudata = data2 |> expand(nesting(state, nstate), tau = seq(0, 1, by = 0.01))
+ptaudata = ntaudata |> add_epred_draws(bouttau_full, re_formula = NA) |> ungroup()
+
+ptaudata = ptaudata |>
+  select(tau, nstate, .draw, .epred) |> 
+  pivot_wider(names_from = nstate, values_from = .epred) |> 
+  mutate(
+    difference_Day_D     = D - Day,
+    difference_Thirty_D  = D - Thirty
+  ) |> 
+  pivot_longer(
+    cols = starts_with("difference"),
+    names_to = "Comparison",
+    values_to = "Difference"
+  ) 
+
+pd_taudata = 
+  ptaudata |> 
+  group_by(Comparison) |> 
+  mutate(median = median(Difference),
+         N = length(Difference)) |> 
+  mutate(pd = sign(Difference) * sign(median)) |> 
+  ungroup() |> 
+  group_by(tau, Comparison) |> 
+  reframe(N = length(pd),
+          pd_pos = sum(pd > 0),
+          pd_neg = sum(pd < 0)
+          ) |> 
+  mutate(
+    pd_pos = pd_pos / N,
+    pd_neg = pd_neg / N
+    ) |> 
+  rowwise() |> 
+  mutate(pd = max(pd_pos, pd_neg))
+
+mean_taudata = ptaudata |> group_by(tau, Comparison) |> mean_hdci(Difference)
+
+med_taudata  = ptaudata |> group_by(tau, Comparison) |> median_hdci(Difference)
+
+med_taudata = med_taudata |> 
+  mutate(Comparison = ifelse(str_detect(Comparison, "Day_D"), "Desiccation - 1-day rehydration", "Desiccation - 30-min rehydration")) |> 
+  mutate(Comparison = factor(Comparison, levels = c("Desiccation - 1-day rehydration", "Desiccation - 30-min rehydration"), labels = c("Desiccation - 30-min", "Desiccation - 1-day")))
+
+pd_taudata = pd_taudata |> 
+  mutate(Comparison = ifelse(str_detect(Comparison, "Day_D"), "Desiccation - 1-day rehydration", "Desiccation - 30-min rehydration")) |> 
+  mutate(Comparison = factor(Comparison, levels = c("Desiccation - 1-day rehydration", "Desiccation - 30-min rehydration"), labels = c("Desiccation - 30-min", "Desiccation - 1-day")))
+  
+mean_taudata = mean_taudata |> 
+  mutate(Comparison = ifelse(str_detect(Comparison, "Day_D"), "Desiccation - 1-day rehydration", "Desiccation - 30-min rehydration")) |> 
+  mutate(Comparison = factor(Comparison, levels = c("Desiccation - 1-day rehydration", "Desiccation - 30-min rehydration", labels = c("Desiccation - 30-min", "Desiccation - 1-day"))))
+
+med_taudata = full_join(med_taudata, pd_taudata, by = c("tau", "Comparison"))
+
+map_to_range <- function(x, high = 0.3) {
+  x_clamped <- pmin(pmax(x, 0.5), 1) 
+  mapped_value <- -high + (2 * high * x_clamped)
+  return(mapped_value)
+}
+
+med_taudata = med_taudata |> 
+  mutate(pd2 = map_to_range(pd, 0.3)) |> 
+  mutate(pdlow = -pd2,
+         pdhigh = pd2)
+
+cetau_df = conditional_effects(bouttau_full)
+```
+
+```{r}
+nullmodel = bf(
+  value_m ~ s(x, bs = "ps") + (1 + x|individual),
+  zi ~ s(x, bs = "ps", k = 4)
+) + zero_inflated_beta()
+
+fullmodel = bf(
+  value_m ~ nstate + s(x, bs = "ps") + s(x, by = nstate, bs = "ps", m = 1) + (1  + x|individual),
+  zi ~ s(x, bs = "ps", k = 4)
+) + zero_inflated_beta()
+
+
+priors = c(
+  prior(normal(0, 1.5),             class = Intercept),
+  prior(normal(0, 1.5),             class = b),
+  prior(exponential(2),             class = sd),
+  prior(exponential(2),             class = sds),
+  prior(normal(0, 1.5), dpar = zi,  class = Intercept),
+  prior(normal(0, 1.5), dpar = zi,  class = b),
+  prior(normal(0, 1),   dpar = zi,  class = sds),
+  prior(exponential(1),          class = phi)
+)
+
+cores = chains = 5
+seed = 2026
+warmup = 4000
+iterations = warmup + 10000
+file_refit = "never"
+control = list(adapt_delta = 0.995, max_treedepth = 20)
+filename_full = "pam-desiccation-full-model"
+filename_null = "pam-desiccation-null-model"
+
+
+runme = F
+
+if(runme) {
+  
+  file.remove(str_c(filename_null, ".rds"))
+  file.exists(str_c(filename_null, ".rds"))
+  file.remove(str_c(filename_full, ".rds"))
+  file.exists(str_c(filename_full, ".rds"))
+  
+  workers = rep("mimir", 2)
+  if(!file.exists(str_c(filename_null, ".rds"))) {
+    plan(cluster, workers = workers)
+    futurenull =
+      future({
+        
+        bout = 
+          brm(
+            nullmodel,
+            data = data2,
+            prior = priors,
+            chains = chains,
+            cores = cores,
+            seed = seed,
+            iter = iterations,
+            warmup = warmup,
+            refresh = 0,
+            backend = "cmdstanr",
+            control = control,
+            save_pars = save_pars(all = TRUE)
+          )
+        bout = add_criterion(bout, criterion = c("loo"), reloo = TRUE, overwrite = TRUE, cores = 5)
+        bout
+        
+      }, seed = seed)
+  }
+  
+  if(!file.exists(str_c(filename_full, ".rds"))) {
+    # plan(cluster, workers = workers)
+    futurefull =
+      future({
+        bout = 
+          brm(
+            fullmodel,
+            data = data2,
+            prior = priors,
+            chains = chains,
+            cores = cores,
+            seed = seed,
+            iter = iterations,
+            warmup = warmup,
+            refresh = 0,
+            backend = "cmdstanr",
+            control = control,
+            save_pars = save_pars(all = TRUE)
+          )
+        bout = add_criterion(bout, criterion = c("loo"), reloo = TRUE, overwrite = TRUE, cores = 5)
+        bout
+      }, seed = seed)
+  }
+  
+  while(! (resolved(futurefull) & resolved(futurenull))) {
+    message("Sampling in progress.")
+    Sys.sleep(1)
+  }
+  
+  bout_null = value(futurenull)
+  bout_null |> write_rds(str_c(filename_null, ".rds"))
   bout_full = value(futurefull)
   bout_full |> write_rds(str_c(filename_full, ".rds"))
   plan(sequential); gc()
-  # future({Sys.info()[["nodename"]]}) |> value()
-} else {
-  bout_full = read_rds(str_c(filename_full, ".rds"))
 }
-```
 
+bout_null = read_rds(str_c(filename_null, ".rds"))
+bout_full = read_rds(str_c(filename_full, ".rds"))
 
-# Posterior predictive checks
+p1b = pp_check(bout_full, type = "dens_overlay_grouped",  group = "nstate", ndraws = 50)
+p2b = pp_check(bout_full, type = "stat_grouped", stat = c("median"), ndraws = 500, binwidth = 0.001, group = "nstate")
+p3b = pp_check(bout_full, type = "stat_grouped", stat = c("mean"),   ndraws = 500, binwidth = 0.001, group = "nstate")
+p4b = pp_check(bout_full, type = "stat_grouped", stat = c("mad"),    ndraws = 500, binwidth = 0.001, group = "nstate")
+p5b = pp_check(bout_full, type = "stat_grouped", stat = c("sd"),     ndraws = 500, binwidth = 0.001, group = "nstate")
+# pout = p1b / p2b / p3b / p4b / p5b 
+# 
+# pdfname = here::here("Plots/PAM-Desiccation-diagnostics.pdf")
+# pngname = str_replace(pdfname, "pdf", "png")
+# save_plot(pdfname, plot = pout, width = 80*3, height = 80*2)
+# image_read_pdf(pdfname) |> image_write(pngname)
 
-```{r}
-p1 = pp_check(bout_full, type = "dens_overlay_grouped",  group = "nstate", ndraws = 50)
-p2 = pp_check(bout_full, type = "stat_grouped", stat = c("median"), ndraws = 500, binwidth = 0.01, group = "nstate")
-p3 = pp_check(bout_full, type = "stat_grouped", stat = c("mean"),   ndraws = 500, binwidth = 0.01, group = "nstate")
-p4 = pp_check(bout_full, type = "stat_grouped", stat = c("mad"),    ndraws = 500, binwidth = 0.01, group = "nstate")
-p5 = pp_check(bout_full, type = "stat_grouped", stat = c("sd"),     ndraws = 500, binwidth = 0.01, group = "nstate")
+ndata = data2 |> expand(nesting(state, nstate), x = seq(0, 1, by = 0.01))
+pdata = ndata |> add_epred_draws(bout_full, re_formula = NA) |> ungroup()
 
-pout = p1 / p2 / p3 / p4 / p5 
+pdata = pdata |>
+  select(x, nstate, .draw, .epred) |> 
+  pivot_wider(names_from = nstate, values_from = .epred) |> 
+  mutate(
+    difference_Day_D     = D - Day,
+    difference_Thirty_D =  D - Thirty
+  ) |> 
+  pivot_longer(
+    cols = starts_with("difference"),
+    names_to = "Comparison",
+    values_to = "Difference"
+  ) 
 
-pdfname = "PAM-Desiccation-RWC-diag-plot.pdf"
-save_plot(pdfname, plot = pout, width = 80*3, height = 80*2)
+pd_data = pdata |> 
+  group_by(Comparison) |> 
+  mutate(median = median(Difference),
+         N = length(Difference)) |> 
+  mutate(pd = sign(Difference) * sign(median)) |> 
+  ungroup() |> 
+  group_by(x, Comparison) |> 
+  reframe(N = length(pd),
+          pd_pos = sum(pd > 0),
+          pd_neg = sum(pd < 0)
+          ) |> 
+  mutate(
+    pd_pos = pd_pos / N,
+    pd_neg = pd_neg / N
+    ) |> 
+  rowwise() |> 
+  mutate(pd = max(pd_pos, pd_neg))
+
+med_data = pdata |> group_by(x, Comparison) |> median_hdci(Difference)
+mean_data = pdata |> group_by(x, Comparison) |> mean_hdci(Difference)
+
+med_data = med_data |> 
+  mutate(Comparison = ifelse(str_detect(Comparison, "Day_D"), "Desiccation - 1-day rehydration", "Desiccation - 30-min rehydration")) |> 
+  mutate(Comparison = factor(Comparison, levels = c("Desiccation - 1-day rehydration", "Desiccation - 30-min rehydration"), labels = c("Desiccation - 30-min", "Desiccation - 1-day")))
+  
+pd_data = pd_data |> 
+  mutate(Comparison = ifelse(str_detect(Comparison, "Day_D"), "Desiccation - 1-day rehydration", "Desiccation - 30-min rehydration")) |> 
+  mutate(Comparison = factor(Comparison, levels = c("Desiccation - 1-day rehydration", "Desiccation - 30-min rehydration"), labels = c("Desiccation - 30-min", "Desiccation - 1-day")))
+  
+
+mean_data = mean_data |> 
+  mutate(Comparison = ifelse(str_detect(Comparison, "Day_D"), "Desiccation - 1-day rehydration", "Desiccation - 30-min rehydration")) |> 
+  mutate(Comparison = factor(Comparison, levels = c("Desiccation - 1-day rehydration", "Desiccation - 30-min rehydration", labels = c("Desiccation - 30-min", "Desiccation - 1-day"))))
+
+med_data = full_join(med_data, pd_data, by = c("x", "Comparison"))
+
+med_data = med_data |> 
+  mutate(pd2 = map_to_range(pd, 0.3)) |> 
+  mutate(pdlow = -pd2,
+         pdhigh = pd2) 
 ce_df = conditional_effects(bout_full)
 ```
 
 ```{r}
-xlabel = "Relative water content (%)"
-ylabel = "Effective quantum yield (&Delta;F/Fm&prime;)"
+xlabel1 = "Time (minutes)"
+ylabel1 = "Effective quantum yield (&Delta;F/Fm&prime;)"
+xlabel2 = "Relative water content (%)"
+ylabel2 = "Effective quantum yield (&Delta;F/Fm&prime;)"
 
-labeldf = data2 |> expand(nesting(state, nstate), x = 0, y = 1) |> 
+
+label1df = data2 |> expand(nesting(state, nstate), x = 0, y = 1) |> 
   mutate(
     l = str_glue("({LETTERS[seq_along(nstate)]}) {state}")
   )
 
+label2df = data2 |> expand(nesting(state, nstate), x = 0, y = 1) |> 
+  mutate(
+    l = str_glue("({LETTERS[3+seq_along(nstate)]}) {state}")
+  )
 
 p1 = ggplot() + 
   geom_richtext(aes(x = x, y = y, label = l),
-                data = labeldf,
+                data = label1df,
+                vjust = 1, hjust = 0,
+                color = "transparent",
+                fill = "transparent",
+                text.color = "black",
+                family = "ns",
+                size = 3
+  ) +
+  geom_ribbon(
+    aes(
+      x = tau, ymin = lower__, ymax = upper__, 
+    ),
+    data = cetau_df$`tau:nstate`,
+    alpha = 0.5
+  ) +
+  geom_line(
+    aes(
+      x = tau, y = estimate__, 
+    ),
+    data = cetau_df$`tau:nstate`,
+    alpha = 0.5
+  ) +
+  geom_point(aes(x = tau, y = value_m,  shape = factor(individual)),
+             data = data2) +
+  scale_color_viridis_d("Treatment", end = 0.8,
+                        labels = c("Desiccation", "30-min rehydration", "1-day rehydration"),
+                        aesthetics = c("fill", "color")) +
+  scale_shape_manual("Individual",values = c(0, 1, 2, 15, 16, 17)) +
+  scale_x_continuous(xlabel1, 
+                     limits = c(0, 1),
+                     breaks = seq(0, 1, length = 5),
+                     labels = seq(0, 180, length = 5)) +
+  scale_y_continuous(ylabel1, limits = c(0,1),
+                     breaks = seq(0, 1, length = 3)) +
+  guides(shape = guide_legend(direction = "horizontal", ncol = 3),
+         fill = "none",
+         color = "none"
+  ) +
+  facet_wrap(vars(nstate), ncol = 1) +
+  theme(
+    legend.byrow = TRUE,
+    legend.title = element_blank(),
+    legend.text = element_markdown(size = rel(0.8)),
+    legend.key.size = unit(3, "mm"),
+    legend.position = "inside",
+    legend.position.inside = c(1, 1),
+    legend.justification = c(1, 1),
+    legend.background = element_blank(),
+    legend.margin = margin(1, 4, 0, 0, unit = "mm"),
+    legend.spacing = unit(0, "mm"),
+    strip.background = element_blank(),
+    strip.text = element_blank()
+  )
+
+p2 = ggplot() + 
+  geom_richtext(aes(x = x, y = y, label = l),
+                data = label2df,
                 vjust = 1, hjust = 0,
                 color = "transparent",
                 fill = "transparent",
@@ -427,13 +810,6 @@ p1 = ggplot() +
     data = ce_df$`x:nstate`,
     alpha = 0.5
   ) +
-  # geom_ribbon(
-  #   aes(
-  #     x = awc, ymin = .lower, ymax = .upper, fill = state
-  #   ),
-  #   data = df_out80,
-  #   alpha = 0.5
-  # ) +
   geom_line(
     aes(
       x = x, y = estimate__, 
@@ -447,17 +823,71 @@ p1 = ggplot() +
                         labels = c("Desiccation", "30-min rehydration", "1-day rehydration"),
                         aesthetics = c("fill", "color")) +
   scale_shape_manual("Individual",values = c(0, 1, 2, 15, 16, 17)) +
-  scale_x_continuous(xlabel, 
+  scale_x_continuous(xlabel2, 
                      limits = c(0, 1),
                      breaks = seq(0, 1, by = .20),
                      labels = seq(0, 100, by = 20)) +
-  scale_y_continuous(ylabel, limits = c(0,1),
-                     breaks = seq(0, 1, by = 0.2)) +
+  scale_y_continuous(ylabel2, limits = c(0,1),
+                     breaks = seq(0, 1, length = 3)) +
   guides(shape = guide_legend(direction = "horizontal", ncol = 3, ),
          fill = "none",
          color = "none"
-         ) +
+  ) +
   facet_wrap(vars(nstate), ncol = 1) +
+  theme(
+    legend.byrow = TRUE,
+    legend.title = element_blank(),
+    legend.text = element_markdown(size = rel(0.8)),
+    legend.key.size = unit(3, "mm"),
+    legend.position = "inside",
+    legend.position.inside = c(1, 0),
+    legend.justification = c(1, 0),
+    legend.background = element_blank(),
+    legend.margin = margin(0, 4, 0, 0, unit = "mm"),
+    legend.spacing = unit(0, "mm"),
+    strip.background = element_blank(),
+    strip.text = element_blank()
+  )
+
+
+label3df = med_data |> expand(Comparison, x = 0, y = 0.3) |> 
+  mutate(
+    l = str_glue("({LETTERS[6+seq_along(Comparison)]}) {Comparison}")
+  )
+
+label4df = med_data |> expand(Comparison, x = 0, y = 0.3) |> 
+  mutate(
+    l = str_glue("({LETTERS[8+seq_along(Comparison)]}) {Comparison}")
+  )
+
+
+ylabel3 = "Difference (logit-scale)"
+
+p3 = 
+  ggplot(med_taudata) +
+  geom_ribbon(aes(x = tau, ymin = pdlow, ymax = pdhigh), alpha = 0.5, fill = "blue") +
+  geom_richtext(aes(x = x, y = y, label = l),
+                data = label3df,
+                vjust = 1, hjust = 0,
+                color = "transparent",
+                fill = "transparent",
+                text.color = "black",
+                family = "ns",
+                size = 3
+  ) +
+  geom_ribbon(aes(x = tau, ymin = .lower, ymax = .upper), 
+              alpha = 0.8) +
+  geom_line(aes(x = tau, y = Difference)) +
+  geom_hline(yintercept = c(-0.1 * pi/sqrt(3), 0.1 * pi / sqrt(3)),linetype = "dashed", alpha = 0.5) +
+  geom_hline(yintercept = c(c(-0.30, 0.30) * 0.975), linetype = "83", color = "blue", alpha = 0.5) +
+  scale_x_continuous(xlabel1, 
+                     limits = c(0, 1),
+                     breaks = seq(0, 1,   length = 5),
+                     labels = seq(0, 180, length = 5)) +
+  scale_y_continuous(ylabel3, limits = c(-0.3, 0.3),
+                     breaks = seq(-0.3, 0.3, length = 5)) +
+
+  facet_wrap(vars(Comparison), ncol = 1) +
   theme(
     legend.byrow = TRUE,
     legend.title = element_blank(),
@@ -472,78 +902,363 @@ p1 = ggplot() +
     strip.background = element_blank(),
     strip.text = element_blank()
   )
-pdfname = "PAM-Desiccation-RWC-plot.pdf"
-save_plot(pdfname, plot = p1, width = 80, height = 80*1.5)
+
+p4 = ggplot(med_data) +
+  geom_ribbon(aes(x = x, ymin = pdlow, ymax = pdhigh), alpha = 0.5, fill = "blue") +
+  geom_richtext(aes(x = x, y = y, label = l),
+                data = label4df,
+                vjust = 1, hjust = 0,
+                color = "transparent",
+                fill = "transparent",
+                text.color = "black",
+                family = "ns",
+                size = 3
+  ) +
+  geom_ribbon(aes(x = x, ymin = .lower, ymax = .upper), 
+              alpha = 0.8) +
+  geom_line(aes(x = x, y = Difference)) +
+  geom_hline(yintercept = c(-0.1 * pi/sqrt(3), 0.1 * pi / sqrt(3)),linetype = "dashed", alpha = 0.5) +
+  geom_hline(yintercept = c(c(-0.30, 0.30) * 0.975), linetype = "83", color = "blue", alpha = 0.5) +
+  scale_x_continuous(xlabel2, 
+                     limits = c(0, 1),
+                     breaks = seq(0, 1, by = .20),
+                     labels = seq(0, 100, by = 20)) +
+  scale_y_continuous(ylabel3, limits = c(-0.3, 0.3),
+                     breaks = seq(-0.3, 0.3, length = 5)) +
+
+  facet_wrap(vars(Comparison), ncol = 1) +
+  theme(
+    legend.byrow = TRUE,
+    legend.title = element_blank(),
+    legend.text = element_markdown(size = rel(0.8)),
+    legend.key.size = unit(5, "mm"),
+    legend.position = "inside",
+    legend.position.inside = c(1, 0),
+    legend.justification = c(1, 0),
+    legend.background = element_blank(),
+    legend.margin = margin(0, 4, 0, 0, unit = "mm"),
+    legend.spacing = unit(0, "mm"),
+    strip.background = element_blank(),
+    strip.text = element_blank()
+  )
+
+  
+pout = p1 + p3 + p2 + p4
+pdfname = here::here("Plots/PAM-Desiccation-RWC-plot.pdf")
+pngname = str_replace(pdfname, "pdf", "png")
+ggsave(pdfname, plot = pout, width = 80*2, height = 80*2, units = "mm")
+image_read_pdf(pdfname) |> image_write(pngname)
+
+pout2 = p1 + p2 + plot_layout(ncol = 2)
+pdfname2 = here::here("Plots/PAM-Desiccation-RWC-plot-simple.pdf")
+pngname2 = str_replace(pdfname2, "pdf", "png")
+ggsave(pdfname2, plot = pout2, width = 80*2, height = 80*1, units = "mm")
+image_read_pdf(pdfname2) |> image_write(pngname2)
 ```
 
-
-
-::: {#fig-pam-desiccation}
+::: {#fig-result}
 
 ```{r}
 image_read(str_replace(pdfname, "pdf", "png"))
 ```
 
-Non-linear response of the effective quantum yield of photosystem II (ΔFv/Fm') to relative water content across distinct hydration states. 
-The panels illustrate the physiological trajectories during desiccation, 30-minute rehydration, and 1-day rehydration. 
-Observations are plotted as points, with distinct shapes indicating individuals.
-Lines represent the population-level expected marginal means derived from a Bayesian hierarchical generalized additive model (HGAM). 
-Shaded regions denote the 95% highest density credible intervals. 
+Non-linear response of the effective quantum yield of photosystem II (&Delta;Fv/Fm&prime;) to time (A-C) and relative water content (RWC) (D-F) across distinct hydration states. 
+The panels illustrate the trajectory of the effective quantum yield during (A,D) desiccation, (B,E) 30-minute rehydration, and (C,F) 1-day rehydration. 
+The differences between the median effective quantum yields during (G,I) 30-min rehydration with respect to desiccation and (H,J) 1-day rehydration with respect to desiccation.
+The solid lines indicates the expected values of the effective quantum yield in A to C and the differences between the expected values on the logit-scale for panels D and E.
+The grey shaded regions indicates the 95% highest density credible intervals and the blue region indicates the probability of direction.
+The black short-dashes indicate the region of practical significance (ROPE) of the differences and the blue long-dashes indicates the region where the probability of direction is less than 95%.
+Observations are plotted as points, with distinct symbols indicating individuals.
+:::
+
+
+```{r}
+#| include: false
+tauloo = loo_compare(bouttau_null, bouttau_full) |> as_tibble(rownames = "model")
+rwcloo = loo_compare(bout_null, bout_full) |> as_tibble(rownames = "model")
+
+cetau_df$`tau:nstate` |> group_by(nstate) |> mutate(med = max(estimate__)) |> filter(estimate__ >= (med/2)) |> slice_max(tau) |> mutate(time = tau * 180)
+ce_df$`x:nstate` |> group_by(nstate) |> mutate(med = max(estimate__)) |> filter(estimate__ >= (med/2)) |> slice_min(x)
+
+med_taudata |> filter(pd >= 0.975) |> group_by(Comparison) |> slice_min(tau) |> mutate(tau = tau * 180)
+med_taudata |> filter(pd >= 0.975) |> group_by(Comparison) |> slice_max(tau) |> mutate(tau = tau * 180)
+  
+```
+
+
+A slow decline in the effective quantum yield was observed for all hydration states (@fig-result A-C).
+The effective quantum yield was reduced to the half (0.310) of the maximum expected value (0.621) by 32.7 minutes under the desiccation hydration state.
+Reductions in effective quantum yield occurred progressively later for the 30-min rehydration state (max. 0.636) and occurred at 38.2 minutes, whereas for the 1-day rehydration state the effective quantum yield droped to 50% of the maximum expected value (0.637) by 40 minutes.
+The effect of hydration state on the relationship between exposure time and effective quantum yield was examined by examining a null model that pooled the data with a model that included the hydration state (@eq-model).
+Leave-one-out cross-validation indicated that there was little evidence that the full model better explained the results when compared to the null model, 
+since the difference in expected log predictive density did no exceed twice its standard error &Delta;ELPD = -1.8, SE =  4.5 for the null model).
+The results of the cross-validation is reflected when we compared the differences among the expected values between the 30-min and 1-d rehydration states with the desicciation state (@fig-result G and H).
+The dip in the differences (i.e., solid line in @fig-result G and H) indicates that the effective quantum yield of the rehydrated states were higher than those measured under the desiccation state, however this effect quickly declined as exposure times increased and the effect of desiccation increased. 
+The probability of direction exceeded 97.% from 21.6 to 55.8 minutes when the desiccation state and 30-min rehydration states were compared, whereas the range was only 27 to  37 minutes for the 1-day rehydration and desiccation state comparison (@fig-result G and H).
+However, the differences were entirely within the ROPE.
+
+When the effective quantum yield was examined with respect to the relative water content (@fig-result D - F), a monotonic increase in &Delta;Fv/Fm&prime; was observed for all hydration states (i.e., desiccation, 30-min rehydration, and 1-d rehydration).
+The effective quantum yields were reduced to 50% of the maximum expected value (0.651) when the %RWC was 30.5% for the desiccation state,
+24.9% for the 30-min rehydration state (max. 0.664), and 23.9% for the 1-day rehydration state (max. 0.661).
+The effect of hydration state on the relationship between relative water content and effective quantum yield was inferred by examining a null model and the model that included the effects of hydration state (@eq-model).
+Leave-one-out cross-validation indicated that the full model had substantially better out-of-sample predictive accuracy,  
+because the difference in expected log predictive density was more than twice its standard error (&Delta;ELPD = -9.7, SE =  3.6 for the null model), we could conclude that the trajectory of the effective quantum yield in response to desiccation differs credibly among the three states.
+However, a close examination of the trajectory of the differences in the effective quantum yield between the desiccation and 30-min rehydration states indicate that there was no evidence that there was a biologically relevant effect, given that the entirety of the differences (i.e., solid line) was within the ROPE (@fig-result I).
+Similarly for the comparison between desiccation and 1-day rehydration (@fig-result J).
+Nevertheless, the probability of direction exceeded 97.5% when %RWC ranged from 0.08 to 0.45 when desiccation and 30-min rehydration was compared, whereas the range was 0.18 to 0.44 when compared to 1-day rehydration.
+Although the evidence was not compelling, rehydration tended to restore the effective quantum yields of dehydrated explants, where the effect was greated between 20 to 40 %RWC (@fig-result I and J).
+The evidence presented in @fig-result is insufficient to make any definitive conclusions regarding how rehydration affects the effective quantum yields after desiccation.
+
+
+::: {#fig-result-1}
+
+```{r}
+image_read(str_replace(pdfname2, "pdf", "png"))
+```
+
+Non-linear response of the effective quantum yield of photosystem II (&Delta;Fv/Fm&prime;) to water temperature (A - D) across exposure periods. 
+The panels illustrate the trajectory of the effective quantum yield after (A) 1 day, (B) 3 days, (C) 5 days, and (D) 7 days of exposure. 
+The solid lines indicates the expected values of the effective quantum yield in A to D.
+The grey shaded regions indicates the 95% highest density credible intervals.
+Observations are plotted as points, with distinct symbols indicating individuals. 
+The symbols are jittered for clarity.
 :::
 
 
 
 
+--------------------------------------------------------------------------------
+
+## PD と Pr. ROPE について
+
+Some papers that discuss the concept of the region of practical equivalence (ROPE) and the
+probability of direction (PD) are @kruschke2021, @anderson2000, @ortega2017, @kruschke2015,
+@kruschke2017, and @Kruschke2013.
+
+**Probability of Direction (PD)** と **Probability of ROPE** の概念です。
+
+### 1. Probability of Direction (PD): 方向性の確率
+
+**「効果がプラス（またはマイナス）である確率は何％か？」**
+
+* **定義:** 事後分布（推定されたパラメータの分布）のうち、符号が「中央値と同じ方向」にある割合です。つまり、効果が「正」または「負」であるという確信度を表します。
+* **P値との関係:**
+頻度論の P値と非常に強い相関があります。P値が「帰無仮説が正しいとした場合に極端なデータが得られる確率」であるのに対し、PDは「効果が存在する（ゼロではない）確率」に近いです。
+* **PD  97.5%** は、両側検定の **P値  0.05** に相当します。
+* **PD  99.5%** は、**P値  0.01** に相当します。
+* PDが **1.00 (100%)** に近いほど、その効果が偶然ではなく、確実に特定の方向（増加または減少）に働いていることを示します。
+
+### 2. Probability of ROPE: 実質的等価領域の確率
+
+**「その効果は、実質的に『ゼロ』とみなせるか？」**
+
+* **ROPE (Region of Practical Equivalence) とは:**
+「効果が完全にゼロ」であることは稀ですが、「科学的・実用的に意味がないほど小さい（ほぼゼロ）」範囲は存在します。この範囲（例: -0.1 から 0.1 の間）を **ROPE** と呼びます。
+* **確率の意味:**
+事後分布の何％がこの ROPE の範囲内に収まっているかを示します。
+* **解釈:**
+- **Pr. ROPE が高い（例: > 0.95）:** 推定された効果のほとんどが「意味のない範囲」に入っています。「**実質的に差はない（帰無仮説を支持する）**」という結論を積極的に導くことができます。（P値では「差がない」ことを証明するのは難しいですが、ROPEなら可能です）
+-  **Pr. ROPE が低い（例: < 0.025）:** 効果の大部分が「意味のない範囲」の外にあります。「**実質的な意味を持つ差がある**」可能性が高いことを示唆します。
+
+
+### P値を用いた頻度論的解釈との対比まとめ
+
+| 指標 | 問いかけ | 頻度論（P値）での類似概念 |
+| --- | --- | --- |
+| **PD (Probability of Direction)** | 「効果がある（ゼロではない）と言えるか？」 | **有意差検定 (NHST)**<br><br>PDが高いほど、P値は低い（有意）。 |
+| **Pr. ROPE** | 「その効果は実質的に意味がある大きさか？」 | **同等性検定 (Equivalence Testing)**<br><br>サンプル数が多すぎて「統計的には有意だが、実用上は意味がない微差」が生じた場合、P値は小さくなりますが、Pr. ROPEは高くなる（差がないと判断できる）ことがあります。 |
+
+### 論文の結果解釈への応用
+
+* **PD = 1.000, Pr. ROPE < 0.001** の場合：
+「効果は確実に存在し（PD = 1.00）、かつその大きさは実質的に意味がある（ROPE確率がほぼ 0）。」→ 非常に強い有意な効果。
+* **PD = 0.992, Pr. ROPE = 0.992** の場合：
+「方向性は一定しているように見えるが（PDが高い）、効果の大きさ自体は極めて小さく、実質的には『差がない』とみなせる（ROPE確率が高い）。」→ 統計的に検出されたとしても、科学的に考察できる結果ではない。
+
+
+## 帰無仮説検定との比較
+
+NHST（帰無仮説検定）に対する、PD（Probability of Direction）および ROPE（実質的等価領域）の主な優位性は、
+**「『効果がない（帰無仮説）』ことを積極的に支持できるかどうか」**、
+そして**「実質的な意味（効果の大きさ）」を評価できるか**という点にあります。
+
+### 1. 「証拠がない」のか「無いという証拠」なのか？（NHSTの限界）
+
+NHST（P値）の最大の問題点は、有意差が出なかった場合（）の解釈が曖昧なことです。
+
+* **NHSTの場合:** 「帰無仮説を棄却できない（Fail to reject）」としか言えません。
+- これは、「効果が本当にゼロである」のか、単に「データ不足（パワー不足）で検出できなかっただけ」なのかを区別できません。
+- つまり、**「証拠がない（Absence of evidence）」**ことしか示せず、**「無いという証拠（Evidence of absence）」**にはなりません。
+* **ROPEの場合:** 「実質的にゼロとみなせる範囲」を定義し、事後分布の大部分がそこに含まれれば、**「効果は実質的にゼロである」と積極的に結論づける（帰無仮説を受容する）**ことができます。
+- これにより、「データは十分にあるが、効果は無視できるほど小さい」という強力な結論を導くことが可能です。
+
+
+
+### 2. 「統計的に有意」vs.「実質的に意味がある」（サンプルの罠）
+
+サンプルサイズ（N）が非常に大きい場合、NHSTには別の問題が発生します。
+
+* **NHSTの場合:**  N が巨大であれば、極めて微細でどうでもいい差であっても、P値は小さくなり「統計的に有意」と判定されてしまいます。これは科学的なミスリードを生む原因となります。
+* **PD & ROPEの場合:**
+- **PD:** 効果の存在確率は高く出ますが（「確かにプラス方向である」）、それだけでは判断しません。
+- **ROPE:** 効果の大きさが ROPE（実質的等価領域）の中に留まっていれば、いくら方向が確実（高PD）でも、**「実質的には意味がない（差はない）」**と判断できます。これにより、過剰な検定力による「意味のない有意差」をフィルタリングできます。
+
+
+
+### 3. 直感的な理解（定義の明確さ）
+
+* **P値（NHST）:** 「『もし帰無仮説が正しいとしたら』、今回のようなデータが得られる確率はどれくらいか？」という、条件付き確率の非常に回りくどい概念です。
+* **PD:** 「効果がプラス（またはマイナス）である確率は何％か？」という、私たちが本当に知りたい直接的な確率です。
+
+### まとめ
+
+| 特徴 | NHST (P値) | ベイズ流 (PD & ROPE) |
+| --- | --- | --- |
+| **帰無仮説の扱い** | 棄却するか、保留するかのみ。「差がない」ことの証明は不可（悪魔の証明）。 | 「実質的に差がない」ことを確率的に証明（受容）できる。 |
+| **有意差が出ない時** | 「データ不足」か「効果なし」か区別不能。 | ROPEを見ることで、「精度不足（不確実）」か「確実に効果なし」かを区別可能。 |
+| **サンプル数過多** | 微細な差でも「有意」になり、ミスリードしやすい。 | 効果が微細なら ROPE に含まれるため、「実質的な差なし」と正しく判断できる。 |
+| **解釈の直感性** | 誤解されやすい（P値を効果の確率と思いがち）。 | 直感的（PD = 効果が存在する確率）。 |
+
+**結論として：**
+論文の Results や Discussion において、「有意差が出なかった」ことを単に報告するのではなく、ROPE を用いて「この結果は、効果が科学的に無視できるレベルであることを示唆している（Accepting the Null）」と論じることができる点が、この手法の最大の強みです。
+
+--------------------------------------------------------------------------------
+
+## Model diagnostic plots
+
+
+### Diagnostics for the relative water content analysis
+
+:::{#fig-tau-overlay}
 ```{r}
-library(emmeans)
-library(bayestestR)
+p1a
 ```
 
+Bayesian Posterior Predictive Check (PPC) Density Overlays for Effective Quantum Yield Models.
 
+The plots represent a visual assessment of model fit (density overlays) comparing the observed distribution of effective quantum yield data to the data predicted by the fitted Bayesian models. 
+The thick dark blue line ($y$) represents the kernel density estimation of the observed experimental data. 
+The multiple thin light blue lines ($y_{\text{rep}}$) represent density estimations calculated from 50 independent datasets simulated (replicated) from the posterior predictive distributions of the model. 
+High congruence between the thick and thin lines signifies an adequate model fit.
+:::
+
+
+:::{#fig-tau-median}
 ```{r}
-eout = emmeans(bout_full, ~nstate|x, at = list(x = seq(0, 1, by = 0.01)), epred = TRUE)
-
-out = regrid(eout, transform = T) |> 
-  contrast("pairwise") |> 
-  describe_posterior(ci = 1, rope_range = c(-0.05, 0.05)) |> 
-  as_tibble()
+p2a
 ```
 
+Posterior Predictive Check (PPC) of Median Effective Quantum Yield.
+This plots illustrates a summary-statistic-based posterior predictive check, evaluating the ability of the model to reproduce the central tendency (median) of the observed data. 
+The solid dark blue vertical line represents the median calculated directly from the observed experimental data, $T(y)$. 
+The light blue histogram displays the distribution of medians, $T(y_{\text{rep}})$, calculated from simulated datasets drawn from the posterior predictive distribution of the model. 
+The consistent alignment of the observed medians within the main mass of the simulated distributions across treatments indicates that both models adequately capture the central tendency of the quantum yield responses.
+:::
 
+:::{#fig-tau-mad}
 ```{r}
-
-out = out |> 
-  mutate(important = (pd > 0.975)&(ROPE_Percentage < 0.025))
-
-p1 = 
-  ggplot(out) + 
-  geom_hline(yintercept = 0.975) +
-  geom_line(
-    aes(
-      x = x, y = pd, color = important, group = contrast
-    )
-  )
-p2 = 
-  ggplot(out) + 
-  geom_hline(yintercept = 0.025) +
-  geom_line(
-    aes(
-      x = x, y = ROPE_Percentage, color = important, group = contrast
-    )
-  )
-p1 / p2
+p3a
 ```
 
+Posterior Predictive Check (PPC) of Median Absolute Deviation.
+This plots illustrates a summary-statistic-based posterior predictive check, evaluating the ability of the model to capture the dispersion of the observed data by using the median absolute deviation (MAD). 
+The solid dark blue vertical line represents the MAD calculated directly from the observed experimental data, $T(y)$. 
+The light blue histogram displays the distribution of MAD, $T(y_{\text{rep}})$, calculated from simulated datasets drawn from the posterior predictive distribution of the model. 
+The alignment of the observed MAD values within the main mass of the simulated distributions across treatments indicates that the models adequately capture the variance present in the physiological responses. 
+The zero-inflation rate drives the large variations observed, since there is a large spike at zero.
+:::
+
+:::{#fig-tau-mean}
+```{r}
+p4a
+```
+
+Posterior Predictive Check (PPC) of Mean Effective Quantum Yield.
+This plots illustrates a summary-statistic-based posterior predictive check, evaluating the ability of the model to reproduce the expected value (mean) of the observed data. 
+The solid dark blue vertical line represents the mean calculated directly from the observed experimental data, $T(y)$. 
+The light blue histogram displays the distribution of means, $T(y_{\text{rep}})$, calculated from simulated datasets drawn from the posterior predictive distribution of the model. 
+The consistent alignment of the observed means within the main mass of the simulated distributions across all treatments indicates that both models adequately capture the overall expected values of the physiological responses. 
+:::
+
+:::{#fig-tau-sd}
+```{r}
+p5a
+```
+
+Posterior Predictive Check (PPC) of Standard Deviation.
+This plots illustrates a summary-statistic-based posterior predictive check, evaluating the ability of the model to reproduce the standard deviation (sd) of the observed data. 
+The solid dark blue vertical line represents the standard deviation calculated directly from the observed experimental data, $T(y)$. 
+The light blue histogram displays the distribution of standard deviations, $T(y_{\text{rep}})$, calculated from simulated datasets drawn from the posterior predictive distribution of the model. 
+The consistent alignment of the observed standard deviations within the main mass of the simulated distributions across all treatments indicates that both models adequately capture the variance of the physiological responses. 
+:::
 
 
 
 
+### Diagnostics for the relative water content analysis
+
+:::{#fig-overlay}
+```{r}
+p1b
+```
+
+Bayesian Posterior Predictive Check (PPC) Density Overlays for Effective Quantum Yield Models.
+
+The plots represent a visual assessment of model fit (density overlays) comparing the observed distribution of effective quantum yield data to the data predicted by the fitted Bayesian models. 
+The thick dark blue line ($y$) represents the kernel density estimation of the observed experimental data. 
+The multiple thin light blue lines ($y_{\text{rep}}$) represent density estimations calculated from 50 independent datasets simulated (replicated) from the posterior predictive distributions of the model. 
+High congruence between the thick and thin lines signifies an adequate model fit.
+:::
 
 
+:::{#fig-median}
+```{r}
+p2b
+```
 
+Posterior Predictive Check (PPC) of Median Effective Quantum Yield.
+This plots illustrates a summary-statistic-based posterior predictive check, evaluating the ability of the model to reproduce the central tendency (median) of the observed data. 
+The solid dark blue vertical line represents the median calculated directly from the observed experimental data, $T(y)$. 
+The light blue histogram displays the distribution of medians, $T(y_{\text{rep}})$, calculated from simulated datasets drawn from the posterior predictive distribution of the model. 
+The consistent alignment of the observed medians within the main mass of the simulated distributions across treatments indicates that both models adequately capture the central tendency of the quantum yield responses.
+:::
 
+:::{#fig-mad}
+```{r}
+p3b
+```
 
+Posterior Predictive Check (PPC) of Median Absolute Deviation.
+This plots illustrates a summary-statistic-based posterior predictive check, evaluating the ability of the model to capture the dispersion of the observed data by using the median absolute deviation (MAD). 
+The solid dark blue vertical line represents the MAD calculated directly from the observed experimental data, $T(y)$. 
+The light blue histogram displays the distribution of MAD, $T(y_{\text{rep}})$, calculated from simulated datasets drawn from the posterior predictive distribution of the model. 
+The alignment of the observed MAD values within the main mass of the simulated distributions across treatments indicates that the models adequately capture the variance present in the physiological responses. 
+The zero-inflation rate drives the large variations observed, since there is a large spike at zero.
+:::
 
+:::{#fig-mean}
+```{r}
+p4b
+```
+
+Posterior Predictive Check (PPC) of Mean Effective Quantum Yield.
+This plots illustrates a summary-statistic-based posterior predictive check, evaluating the ability of the model to reproduce the expected value (mean) of the observed data. 
+The solid dark blue vertical line represents the mean calculated directly from the observed experimental data, $T(y)$. 
+The light blue histogram displays the distribution of means, $T(y_{\text{rep}})$, calculated from simulated datasets drawn from the posterior predictive distribution of the model. 
+The consistent alignment of the observed means within the main mass of the simulated distributions across all treatments indicates that both models adequately capture the overall expected values of the physiological responses. 
+:::
+
+:::{#fig-sd}
+```{r}
+p5b
+```
+
+Posterior Predictive Check (PPC) of Standard Deviation.
+This plots illustrates a summary-statistic-based posterior predictive check, evaluating the ability of the model to reproduce the standard deviation (sd) of the observed data. 
+The solid dark blue vertical line represents the standard deviation calculated directly from the observed experimental data, $T(y)$. 
+The light blue histogram displays the distribution of standard deviations, $T(y_{\text{rep}})$, calculated from simulated datasets drawn from the posterior predictive distribution of the model. 
+The consistent alignment of the observed standard deviations within the main mass of the simulated distributions across all treatments indicates that both models adequately capture the variance of the physiological responses. 
+:::
 
 
 
